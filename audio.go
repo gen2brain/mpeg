@@ -94,6 +94,7 @@ func (a *Audio) HasHeader() bool {
 	}
 
 	a.nextFrameDataSize = a.decodeHeader()
+
 	return a.hasHeader
 }
 
@@ -332,7 +333,6 @@ func (a *Audio) decodeFrame() {
 	outPos := 0
 	for part := 0; part < 3; part++ {
 		for granule := 0; granule < 4; granule++ {
-
 			// Read the samples
 			for sb := 0; sb < a.bound; sb++ {
 				a.readSamples(0, sb, part)
@@ -409,9 +409,7 @@ func (a *Audio) decodeFrame() {
 				} // End of synthesis ch loop
 
 				outPos += 32
-
 			} // End of synthesis sub-block loop
-
 		} // Decoding of the granule finished
 	}
 
@@ -439,6 +437,7 @@ func (a *Audio) readSamples(ch, sb, part int) {
 		a.sample[ch][sb][0] = 0
 		a.sample[ch][sb][1] = 0
 		a.sample[ch][sb][2] = 0
+
 		return
 	}
 
@@ -889,7 +888,7 @@ var synthesisWindow = []float32{
 	0.5, 0.5,
 }
 
-// Quantizer lookup, step 1: bitrate classes
+// Quantizer lookup, step 1: bitrate classes.
 var quantLutStep1 = [][]byte{
 	// 32, 48, 56, 64, 80, 96,112,128,160,192,224,256,320,384 <- bitrate
 	{0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2}, // mono
@@ -897,7 +896,7 @@ var quantLutStep1 = [][]byte{
 	{0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2}, // stereo
 }
 
-// Quantizer lookup, step 2: bitrate class, sample rate -> B2 table idx, sblimit
+// Quantizer lookup, step 2: bitrate class, sample rate -> B2 table idx, sblimit.
 var quantTabA = byte(27 | 64) // Table 3-B.2a: high-rate, sblimit = 27
 var quantTabB = byte(30 | 64) // Table 3-B.2b: high-rate, sblimit = 30
 var quantTabC = byte(8)       // Table 3-B.2c:  low-rate, sblimit =  8
@@ -910,8 +909,7 @@ var quantLutStep2 = [][]byte{
 	{quantTabB, quantTabA, quantTabB}, // 96+	 kbit/sec/ch
 }
 
-// Quantizer lookup, step 3: B2 table, subband -> nbal, row Index
-// (upper 4 bits: nbal, lower 4 bits: row Index)
+// Quantizer lookup, step 3: B2 table, subband -> nbal, row Index (upper 4 bits: nbal, lower 4 bits: row Index).
 var quantLutStep3 = [][]byte{
 	// Low-rate table (3-B.2c and 3-B.2d)
 	{
@@ -934,7 +932,7 @@ var quantLutStep3 = [][]byte{
 	},
 }
 
-// Quantizer lookup, step 4: table row, allocation[] Value -> quant table Index
+// Quantizer lookup, step 4: table row, allocation[] Value -> quant table Index.
 var quantLutStep4 = [][]byte{
 	{0, 1, 2, 17},
 	{0, 1, 2, 3, 4, 5, 6, 17},

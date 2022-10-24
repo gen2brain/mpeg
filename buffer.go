@@ -91,6 +91,7 @@ func (b *Buffer) Write(p []byte) int {
 
 	b.length += n
 	b.hasEnded = false
+
 	return n
 }
 
@@ -147,12 +148,14 @@ func (b *Buffer) LoadReaderCallback(buffer *Buffer) {
 			p = p[:n]
 		} else if err == io.EOF {
 			b.hasEnded = true
+
 			return
 		}
 	}
 
 	if n == 0 {
 		b.hasEnded = true
+
 		return
 	}
 
@@ -185,6 +188,7 @@ func (b *Buffer) tell() int {
 	if b.reader != nil && b.totalSize > 0 {
 		seeker := b.reader.(io.Seeker)
 		off, _ := seeker.Seek(0, io.SeekCurrent)
+
 		return int(off) + (b.bitIndex >> 3) - b.length
 	}
 
@@ -284,8 +288,8 @@ func (b *Buffer) nextStartCode() int {
 		if data[byteIndex] == 0x00 &&
 			data[byteIndex+1] == 0x00 &&
 			data[byteIndex+2] == 0x01 {
-
 			b.bitIndex = (byteIndex + 4) << 3
+
 			return int(data[byteIndex+3])
 		}
 
@@ -322,11 +326,13 @@ func (b *Buffer) findFrameSync() bool {
 	for i = b.bitIndex >> 3; i < b.length-1; i++ {
 		if b.Bytes()[i] == 0xFF && (b.Bytes()[i+1]&0xFE) == 0xFC {
 			b.bitIndex = ((i + 1) << 3) + 3
+
 			return true
 		}
 	}
 
 	b.bitIndex = (i + 1) << 3
+
 	return false
 }
 

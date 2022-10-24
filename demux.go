@@ -126,6 +126,7 @@ func (d *Demux) HasHeaders() bool {
 	}
 
 	d.hasHeaders = true
+
 	return true
 }
 
@@ -234,6 +235,7 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 				foundPacketWithPts = true
 				byteRate = float64(seekPos-curPos) / (packet.Pts - curTime)
 				curTime = packet.Pts
+
 				break
 			}
 
@@ -262,6 +264,7 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 						if (packet.Data[i+5] & 0x38) == 8 {
 							lastValidPacketStart = packetStart
 						}
+
 						break
 					}
 				}
@@ -275,6 +278,7 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 			// If there was at least one intra frame in the range scanned above,
 			// our search is over. Jump back to the packet and decode it again.
 			d.bufferSeek(lastValidPacketStart)
+
 			return d.decodePacket(typ)
 		case foundPacketInRange:
 			// If we hit the right range, but still found no intra frame, we have to increase the scanSpan.
@@ -363,6 +367,7 @@ func (d *Demux) Duration(typ int) float64 {
 
 		if lastPts != PacketInvalidTS {
 			d.duration = lastPts - d.StartTime(typ)
+
 			break
 		}
 	}
@@ -429,6 +434,7 @@ func (d *Demux) decodeTime() float64 {
 	d.buf.skip(1)
 	clock |= d.buf.read(15)
 	d.buf.skip(1)
+
 	return float64(clock) / 90000.0
 }
 

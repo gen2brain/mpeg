@@ -158,6 +158,7 @@ func (m *MPEG) SetVideoEnabled(enabled bool) {
 
 	if !enabled {
 		m.videoPacketType = 0
+
 		return
 	}
 
@@ -220,6 +221,7 @@ func (m *MPEG) SetAudioEnabled(enabled bool) {
 	m.audioEnabled = enabled
 	if !enabled {
 		m.audioPacketType = 0
+
 		return
 	}
 
@@ -272,7 +274,7 @@ func (m *MPEG) AudioLeadTime() float64 {
 
 // SetAudioLeadTime sets the audio lead time in second. Typically, this
 // should be set to the duration of the buffer of the audio API that you use
-// for output. E.g. for SDL2: (SDL_AudioSpec.samples / samplerate)
+// for output. E.g. for SDL2: (SDL_AudioSpec.samples / samplerate).
 func (m *MPEG) SetAudioLeadTime(leadTime float64) {
 	m.audioLeadTime = leadTime
 }
@@ -370,6 +372,7 @@ func (m *MPEG) Decode(tick float64) {
 
 	if (!decodeVideo || decodeVideoFailed) && (!decodeAudio || decodeAudioFailed) && m.demux.HasEnded() {
 		m.handleEnd()
+
 		return
 	}
 
@@ -473,6 +476,7 @@ func (m *MPEG) SeekFrame(time float64, seekExact bool) *Frame {
 	}
 
 	m.hasEnded = false
+
 	return frame
 }
 
@@ -532,6 +536,7 @@ func (m *MPEG) Seek(time float64, seekExact bool) bool {
 
 			// Decode audio
 			m.Decode(0)
+
 			break
 		}
 	}

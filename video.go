@@ -31,12 +31,14 @@ func (f *Frame) YCbCr() *image.YCbCr {
 func (f *Frame) RGBA() *image.RGBA {
 	b := f.imYCbCr.Bounds()
 	draw.Draw(&f.imRGBA, b.Bounds(), &f.imYCbCr, b.Min, draw.Src)
+
 	return &f.imRGBA
 }
 
 // Pixels returns frame as slice of color.RGBA.
 func (f *Frame) Pixels() []color.RGBA {
 	img := f.RGBA()
+
 	return unsafe.Slice((*color.RGBA)(unsafe.Pointer(&img.Pix[0])), len(img.Pix)/4)
 }
 
@@ -227,6 +229,7 @@ func (v *Video) Decode() *Frame {
 					(v.pictureType == pictureTypeIntra || v.pictureType == pictureTypePredictive) {
 					v.hasReferenceFrame = false
 					frame = &v.frameBackward
+
 					break
 				}
 
@@ -324,6 +327,7 @@ func (v *Video) decodeSequenceHeader() bool {
 	v.initFrame(&v.frameBackward)
 
 	v.hasSequenceHeader = true
+
 	return true
 }
 
@@ -1168,7 +1172,6 @@ func addBlockToDest(block []int, dest []byte, index, scan int) {
 
 		index += scan + 8
 	}
-
 }
 
 func copyValueToDest(value int, dest []byte, index, scan int) {
@@ -1185,7 +1188,6 @@ func copyValueToDest(value int, dest []byte, index, scan int) {
 
 		index += scan + 8
 	}
-
 }
 
 func addValueToDest(value int, dest []byte, index, scan int) {
@@ -1201,13 +1203,13 @@ func addValueToDest(value int, dest []byte, index, scan int) {
 
 		index += scan + 8
 	}
-
 }
 
 func abs(x int) int {
 	if x < 0 {
 		return -x
 	}
+
 	return x
 }
 
@@ -1225,6 +1227,7 @@ func startIsSlice(c int) bool {
 	if c >= startSliceFirst && c <= startSliceLast {
 		return true
 	}
+
 	return false
 }
 
