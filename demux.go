@@ -270,17 +270,18 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 			}
 		}
 
-		// If there was at least one intra frame in the range scanned above,
-		// our search is over. Jump back to the packet and decode it again.
-		if lastValidPacketStart != -1 {
+		switch {
+		case lastValidPacketStart != -1:
+			// If there was at least one intra frame in the range scanned above,
+			// our search is over. Jump back to the packet and decode it again.
 			d.bufferSeek(lastValidPacketStart)
 			return d.decodePacket(typ)
-		} else if foundPacketInRange {
+		case foundPacketInRange:
 			// If we hit the right range, but still found no intra frame, we have to increase the scanSpan.
 			// This is done exponentially to also handle video files with very few intra frames.
 			scanSpan *= 2
 			seekTime = firstPacketTime
-		} else if !foundPacketWithPts {
+		case !foundPacketWithPts:
 			// If we didn't find any packet with a PTS, it probably means we reached
 			// the end of the file. Estimate byteRate and curTime accordingly.
 			byteRate = float64(seekPos-curPos) / (duration - curTime)
@@ -401,7 +402,8 @@ func (d *Demux) Decode() *Packet {
 
 	for {
 		d.startCode = d.buf.nextStartCode()
-		if d.startCode == PacketVideo1 || d.startCode == PacketPrivate || (d.startCode >= PacketAudio1 && d.startCode <= PacketAudio4) {
+		if d.startCode == PacketVideo1 || d.startCode == PacketPrivate ||
+			(d.startCode >= PacketAudio1 && d.startCode <= PacketAudio4) {
 			return d.decodePacket(d.startCode)
 		}
 
@@ -448,20 +450,21 @@ func (d *Demux) decodePacket(typ int) *Packet {
 	}
 
 	ptsDtsMarker := d.buf.read(2)
-	if ptsDtsMarker == 0x03 {
+	switch {
+	case ptsDtsMarker == 0x03:
 		d.nextPacket.Pts = d.decodeTime()
 		d.lastDecodedPts = d.nextPacket.Pts
 		d.buf.skip(40) // skip DTS
 		d.nextPacket.length -= 10
-	} else if ptsDtsMarker == 0x02 {
+	case ptsDtsMarker == 0x02:
 		d.nextPacket.Pts = d.decodeTime()
 		d.lastDecodedPts = d.nextPacket.Pts
 		d.nextPacket.length -= 5
-	} else if ptsDtsMarker == 0x00 {
+	case ptsDtsMarker == 0x00:
 		d.nextPacket.Pts = PacketInvalidTS
 		d.buf.skip(4)
 		d.nextPacket.length -= 1
-	} else {
+	default:
 		return nil // invalid
 	}
 

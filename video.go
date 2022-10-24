@@ -246,13 +246,14 @@ func (v *Video) Decode() *Frame {
 
 		v.decodePicture()
 
-		if v.assumeNoBFrames {
+		switch {
+		case v.assumeNoBFrames:
 			frame = &v.frameBackward
-		} else if v.pictureType == pictureTypeB {
+		case v.pictureType == pictureTypeB:
 			frame = &v.frameCurrent
-		} else if v.hasReferenceFrame {
+		case v.hasReferenceFrame:
 			frame = &v.frameForward
-		} else {
+		default:
 			v.hasReferenceFrame = true
 		}
 
@@ -542,10 +543,8 @@ func (v *Video) decodeMacroblock() {
 	cbp := 0
 	if (v.macroblockType & 0x02) != 0 {
 		cbp = v.buf.readVlc(videoCodeBlockPattern)
-	} else {
-		if v.macroblockIntra {
-			cbp = 0x3f
-		}
+	} else if v.macroblockIntra {
+		cbp = 0x3f
 	}
 
 	mask := 0x20
@@ -954,12 +953,13 @@ func (v *Video) decodeBlock(block int) {
 			// escape
 			run = v.buf.read(6)
 			level = v.buf.read(8)
-			if level == 0 {
+			switch {
+			case level == 0:
 				level = v.buf.read(8)
-			} else if level == 128 {
+			case level == 128:
 				level = v.buf.read(8) - 256
-			} else if level > 128 {
-				level = level - 256
+			case level > 128:
+				level -= 256
 			}
 		} else {
 			run = coeff >> 8
