@@ -67,6 +67,11 @@ func (s *SamplesReader) Read(b []byte) (int, error) {
 	return s.reader.Read(b)
 }
 
+// Seek implements the io.Seeker interface.
+func (s *SamplesReader) Seek(offset int64, whence int) (int64, error) {
+	return 0, nil
+}
+
 // Audio decodes MPEG-1 Audio Layer II (mp2) data into raw samples.
 type Audio struct {
 	time              float64
