@@ -14,10 +14,12 @@ const (
 type AudioFormat int
 
 const (
-	// AudioF32 - 32-bit floating point samples
-	AudioF32 AudioFormat = iota
+	// AudioF32N - 32-bit floating point samples, normalized
+	AudioF32N AudioFormat = iota
 	// AudioF32LR - 32-bit floating point samples, separate channels
 	AudioF32LR
+	// AudioF32 - 32-bit floating point samples
+	AudioF32
 	// AudioS16 - signed 16-bit samples
 	AudioS16
 )
@@ -27,14 +29,26 @@ const (
 type Samples struct {
 	Time        float64
 	S16         []int16
+	F32         []float32
 	Left        []float32
 	Right       []float32
 	Interleaved []float32
+
+	format AudioFormat
 }
 
 // Bytes returns interleaved samples as slice of bytes.
 func (s *Samples) Bytes() []byte {
-	return unsafe.Slice((*byte)(unsafe.Pointer(&s.Interleaved[0])), len(s.Interleaved)*4)
+	switch s.format {
+	case AudioF32N:
+		return unsafe.Slice((*byte)(unsafe.Pointer(&s.Interleaved[0])), len(s.Interleaved)*4)
+	case AudioF32:
+		return unsafe.Slice((*byte)(unsafe.Pointer(&s.F32[0])), len(s.F32)*4)
+	case AudioS16:
+		return unsafe.Slice((*byte)(unsafe.Pointer(&s.S16[0])), len(s.S16)*2)
+	}
+
+	return nil
 }
 
 type SamplesReader struct {
@@ -91,6 +105,7 @@ func NewAudio(buf *Buffer) *Audio {
 	audio.samplerateIndex = 3 // Indicates 0
 
 	audio.samples.S16 = make([]int16, SamplesPerFrame*2)
+	audio.samples.F32 = make([]float32, SamplesPerFrame*2)
 	audio.samples.Left = make([]float32, SamplesPerFrame)
 	audio.samples.Right = make([]float32, SamplesPerFrame)
 	audio.samples.Interleaved = make([]float32, SamplesPerFrame*2)
@@ -117,8 +132,11 @@ func NewAudio(buf *Buffer) *Audio {
 // Reader returns samples reader.
 func (a *Audio) Reader() io.Reader {
 	switch a.format {
-	case AudioF32:
+	case AudioF32N:
 		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.Interleaved[0])), len(a.samples.Interleaved)*4)
+		return &SamplesReader{bytes.NewReader(b)}
+	case AudioF32:
+		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.F32[0])), len(a.samples.F32)*4)
 		return &SamplesReader{bytes.NewReader(b)}
 	case AudioS16:
 		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.S16[0])), len(a.samples.S16)*2)
@@ -450,12 +468,14 @@ func (a *Audio) decodeFrame() {
 						s := a.u[j] / 2147418112.0
 
 						switch a.format {
-						case AudioF32:
+						case AudioF32N:
 							a.samples.Interleaved[((outPos+j)<<1)+ch] = s
 						case AudioF32LR:
 							out[outPos+j] = s
 						case AudioS16:
 							a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x7FFF)
+						case AudioF32:
+							a.samples.F32[((outPos+j)<<1)+ch] = s * 0x7FFFFFFF
 						}
 					}
 				} // End of synthesis ch loop

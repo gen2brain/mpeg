@@ -214,6 +214,7 @@ func (m *MPEG) AudioFormat() AudioFormat {
 // SetAudioFormat sets audio format.
 func (m *MPEG) SetAudioFormat(format AudioFormat) {
 	m.audioDecoder.format = format
+	m.audioDecoder.samples.format = format
 }
 
 // SetAudioCallback sets a audio callback.
