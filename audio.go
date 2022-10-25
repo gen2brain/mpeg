@@ -9,10 +9,22 @@ const (
 	SamplesPerFrame = 1152
 )
 
+type AudioFormat int
+
+const (
+	// AudioF32 - 32-bit floating point samples
+	AudioF32 AudioFormat = iota
+	// AudioF32LR - 32-bit floating point samples, separate channels
+	AudioF32LR
+	// AudioS16 - signed 16-bit samples
+	AudioS16
+)
+
 // Samples represents decoded audio samples, stored as normalized (-1, 1) float32,
 // interleaved and in separate channels.
 type Samples struct {
 	Time        float64
+	S16         []int16
 	Left        []float32
 	Right       []float32
 	Interleaved []float32
@@ -46,6 +58,7 @@ type Audio struct {
 	sample          [2][32][3]int
 
 	samples Samples
+	format  AudioFormat
 
 	d []float32
 	v [][]float32
@@ -59,6 +72,7 @@ func NewAudio(buf *Buffer) *Audio {
 	audio.buf = buf
 	audio.samplerateIndex = 3 // Indicates 0
 
+	audio.samples.S16 = make([]int16, SamplesPerFrame*2)
 	audio.samples.Left = make([]float32, SamplesPerFrame)
 	audio.samples.Right = make([]float32, SamplesPerFrame)
 	audio.samples.Interleaved = make([]float32, SamplesPerFrame*2)
@@ -403,8 +417,14 @@ func (a *Audio) decodeFrame() {
 					for j := 0; j < 32; j++ {
 						s := a.u[j] / 2147418112.0
 
-						out[outPos+j] = s
-						a.samples.Interleaved[((outPos+j)<<1)+ch] = s
+						switch a.format {
+						case AudioF32:
+							a.samples.Interleaved[((outPos+j)<<1)+ch] = s
+						case AudioF32LR:
+							out[outPos+j] = s
+						case AudioS16:
+							a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x7FFF)
+						}
 					}
 				} // End of synthesis ch loop
 

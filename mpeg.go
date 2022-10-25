@@ -206,6 +206,16 @@ func (m *MPEG) Audio() *Audio {
 	return m.audioDecoder
 }
 
+// AudioFormat returns audio format.
+func (m *MPEG) AudioFormat() AudioFormat {
+	return m.audioDecoder.format
+}
+
+// SetAudioFormat sets audio format.
+func (m *MPEG) SetAudioFormat(format AudioFormat) {
+	m.audioDecoder.format = format
+}
+
 // SetAudioCallback sets a audio callback.
 func (m *MPEG) SetAudioCallback(callback AudioFunc) {
 	m.audioCallback = callback
