@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gowebapi/webapi"
 	"github.com/gowebapi/webapi/core/js"
@@ -123,6 +124,8 @@ func newApp() *app {
 		app.render(frame.Y.Data, frame.Cb.Data, frame.Cr.Data)
 	})
 
+	app.mpg.SetAudioFormat(mpeg.AudioF32LR)
+
 	app.mpg.SetAudioCallback(func(m *mpeg.MPEG, samples *mpeg.Samples) {
 		if samples == nil {
 			return
@@ -162,7 +165,7 @@ func newApp() *app {
 			app.audioContext.Resume()
 
 			app.audioBuffer = app.audioContext.CreateBuffer(2, mpeg.SamplesPerFrame, app.samplerate)
-			app.mpg.SetAudioLeadTime(app.audioBuffer.Duration())
+			app.mpg.SetAudioLeadTime(time.Duration(app.audioBuffer.Duration() * float64(time.Second)))
 
 			app.animationID = app.window.RequestAnimationFrame(app.callback)
 			app.status.SetInnerHTML(status)
@@ -197,7 +200,7 @@ func (a *app) update(currentTime float64) {
 	a.lastTime = currentTime
 
 	go func() {
-		a.mpg.Decode(a.elapsedTime)
+		a.mpg.Decode(time.Duration(a.elapsedTime * float64(time.Second)))
 		a.animationID = a.window.RequestAnimationFrame(a.callback)
 	}()
 }

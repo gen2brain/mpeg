@@ -278,20 +278,20 @@ func (m *MPEG) Channels() int {
 
 // AudioLeadTime returns the audio lead time in seconds - the time in which audio samples
 // are decoded in advance (or behind) the video decode time.
-func (m *MPEG) AudioLeadTime() float64 {
-	return m.audioLeadTime
+func (m *MPEG) AudioLeadTime() time.Duration {
+	return time.Duration(m.audioLeadTime * float64(time.Second))
 }
 
-// SetAudioLeadTime sets the audio lead time in second. Typically, this
+// SetAudioLeadTime sets the audio lead time in seconds. Typically, this
 // should be set to the duration of the buffer of the audio API that you use
 // for output. E.g. for SDL2: (SDL_AudioSpec.samples / samplerate).
-func (m *MPEG) SetAudioLeadTime(leadTime float64) {
-	m.audioLeadTime = leadTime
+func (m *MPEG) SetAudioLeadTime(leadTime time.Duration) {
+	m.audioLeadTime = leadTime.Seconds()
 }
 
 // Time returns the current internal time in seconds.
-func (m *MPEG) Time() float64 {
-	return m.time
+func (m *MPEG) Time() time.Duration {
+	return time.Duration(m.time * float64(time.Second))
 }
 
 // Duration returns the video duration of the underlying source.
@@ -332,7 +332,7 @@ func (m *MPEG) HasEnded() bool {
 // Decode advances the internal timer by seconds and decode video/audio up to this time.
 // This will call the video_decode_callback and audio_decode_callback any number of times.
 // A frame-skip is not implemented, i.e. everything up to current time will be decoded.
-func (m *MPEG) Decode(tick float64) {
+func (m *MPEG) Decode(tick time.Duration) {
 	if !m.initDecoders() {
 		return
 	}
@@ -349,8 +349,8 @@ func (m *MPEG) Decode(tick float64) {
 	decodeVideoFailed := false
 	decodeAudioFailed := false
 
-	videoTargetTime := m.time + tick
-	audioTargetTime := m.time + tick + m.audioLeadTime
+	videoTargetTime := m.time + tick.Seconds()
+	audioTargetTime := m.time + tick.Seconds() + m.audioLeadTime
 
 	for {
 		didDecode = false
@@ -386,7 +386,7 @@ func (m *MPEG) Decode(tick float64) {
 		return
 	}
 
-	m.time += tick
+	m.time += tick.Seconds()
 }
 
 // DecodeVideo decodes and returns one video frame. Returns nil if no frame could be decoded
@@ -436,7 +436,7 @@ func (m *MPEG) DecodeAudio() *Samples {
 // SeekFrame seeks, similar to Seek(), but will not call the VideoFunc callback,
 // AudioFunc callback or make any attempts to sync audio.
 // Returns the found frame or nil if no frame could be found.
-func (m *MPEG) SeekFrame(time float64, seekExact bool) *Frame {
+func (m *MPEG) SeekFrame(tm time.Duration, seekExact bool) *Frame {
 	if !m.initDecoders() {
 		return nil
 	}
@@ -449,13 +449,13 @@ func (m *MPEG) SeekFrame(time float64, seekExact bool) *Frame {
 	startTime := m.demux.StartTime(typ)
 	duration := m.demux.Duration(typ)
 
-	if time < 0 {
-		time = 0
-	} else if time > duration {
-		time = duration
+	if tm.Seconds() < 0 {
+		tm = 0
+	} else if tm.Seconds() > duration {
+		tm = time.Duration(duration * float64(time.Second))
 	}
 
-	packet := m.demux.Seek(time, typ, true)
+	packet := m.demux.Seek(tm.Seconds(), typ, true)
 	if packet == nil {
 		return nil
 	}
@@ -473,7 +473,7 @@ func (m *MPEG) SeekFrame(time float64, seekExact bool) *Frame {
 	// If we want to seek to an exact frame, we have to decode all frames
 	// on top of the intra frame we just jumped to.
 	if seekExact {
-		for frame != nil && frame.Time < time {
+		for frame != nil && frame.Time < tm.Seconds() {
 			frame = m.videoDecoder.Decode()
 		}
 	}
@@ -500,8 +500,8 @@ func (m *MPEG) SeekFrame(time float64, seekExact bool) *Frame {
 // exactly once with the target frame. If audio is enabled, it will also call
 // the AudioFunc callback any number of times, until the audioLeadTime is satisfied.
 // Returns true if seeking succeeded or false if no frame could be found.
-func (m *MPEG) Seek(time float64, seekExact bool) bool {
-	frame := m.SeekFrame(time, seekExact)
+func (m *MPEG) Seek(tm time.Duration, seekExact bool) bool {
+	frame := m.SeekFrame(tm, seekExact)
 
 	if frame == nil {
 		return false

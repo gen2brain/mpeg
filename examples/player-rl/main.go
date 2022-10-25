@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/jfbus/httprs"
@@ -61,7 +62,9 @@ func main() {
 		defer rl.UnloadAudioStream(stream)
 		rl.PlayAudioStream(stream)
 
-		mpg.SetAudioLeadTime(float64(mpeg.SamplesPerFrame*2) / float64(samplerate))
+		duration := float64(mpeg.SamplesPerFrame) / float64(samplerate)
+		mpg.SetAudioLeadTime(time.Duration(duration * float64(time.Second)))
+
 		mpg.SetAudioCallback(func(m *mpeg.MPEG, samples *mpeg.Samples) {
 			if samples == nil {
 				return
@@ -114,9 +117,9 @@ func main() {
 			}
 			fullscreen = toggleFullscreen(fullscreen, winPos, width, height)
 		} else if rl.IsKeyPressed(rl.KeyRight) {
-			seekTo = mpg.Time() + 3
+			seekTo = mpg.Time().Seconds() + 3
 		} else if rl.IsKeyPressed(rl.KeyLeft) {
-			seekTo = mpg.Time() - 3
+			seekTo = mpg.Time().Seconds() - 3
 		}
 
 		if !pause {
@@ -128,9 +131,9 @@ func main() {
 			lastTime = currentTime
 
 			if seekTo != -1 {
-				mpg.Seek(seekTo, false)
+				mpg.Seek(time.Duration(seekTo*float64(time.Second)), false)
 			} else {
-				mpg.Decode(elapsedTime)
+				mpg.Decode(time.Duration(elapsedTime * float64(time.Second)))
 			}
 		}
 

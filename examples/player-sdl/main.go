@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/jfbus/httprs"
 	"github.com/veandco/go-sdl2/sdl"
@@ -77,7 +78,9 @@ func main() {
 		defer sdl.CloseAudioDevice(devId)
 		sdl.PauseAudioDevice(devId, false)
 
-		mpg.SetAudioLeadTime(float64(spec.Samples) / float64(samplerate))
+		duration := float64(spec.Samples) / float64(samplerate)
+		mpg.SetAudioLeadTime(time.Duration(duration * float64(time.Second)))
+
 		mpg.SetAudioCallback(func(m *mpeg.MPEG, samples *mpeg.Samples) {
 			if samples == nil {
 				return
@@ -144,7 +147,7 @@ func main() {
 					}
 				}
 			case *sdl.KeyboardEvent:
-				if ev.Type == sdl.KEYUP && (ev.Keysym.Sym == sdl.K_ESCAPE || ev.Keysym.Sym == sdl.K_q) {
+				if ev.Type == sdl.KEYDOWN && (ev.Keysym.Sym == sdl.K_ESCAPE || ev.Keysym.Sym == sdl.K_q) {
 					running = false
 				} else if ev.Type == sdl.KEYDOWN && (ev.Keysym.Sym == sdl.K_SPACE || ev.Keysym.Sym == sdl.K_p) {
 					pause = !pause
@@ -154,9 +157,9 @@ func main() {
 						fmt.Println(err)
 					}
 				} else if ev.Type == sdl.KEYDOWN && ev.Keysym.Sym == sdl.K_RIGHT {
-					seekTo = mpg.Time() + 3
+					seekTo = mpg.Time().Seconds() + 3
 				} else if ev.Type == sdl.KEYDOWN && ev.Keysym.Sym == sdl.K_LEFT {
-					seekTo = mpg.Time() - 3
+					seekTo = mpg.Time().Seconds() - 3
 				}
 			}
 		}
@@ -173,9 +176,9 @@ func main() {
 				if hasAudio {
 					sdl.ClearQueuedAudio(devId)
 				}
-				mpg.Seek(seekTo, false)
+				mpg.Seek(time.Duration(seekTo*float64(time.Second)), false)
 			} else {
-				mpg.Decode(elapsedTime)
+				mpg.Decode(time.Duration(elapsedTime * float64(time.Second)))
 			}
 		}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"testing"
+	"time"
 
 	"github.com/gen2brain/mpeg"
 )
@@ -194,9 +195,9 @@ func TestMpeg(t *testing.T) {
 		t.Errorf("Channels: got %d, want %d", mpg.Channels(), 1)
 	}
 
-	mpg.SetAudioLeadTime(1)
-	if mpg.AudioLeadTime() != 1 {
-		t.Errorf("AudioLeadTime: got %f, want %f", mpg.AudioLeadTime(), 1.0)
+	mpg.SetAudioLeadTime(1 * time.Second)
+	if mpg.AudioLeadTime().Seconds() != 1 {
+		t.Errorf("AudioLeadTime: got %s, want %f", mpg.AudioLeadTime(), 1.0)
 	}
 
 	if int(mpg.Duration().Seconds()) != 9 {
@@ -246,19 +247,19 @@ func TestMpeg(t *testing.T) {
 		t.Fatal("Seek: returned false")
 	}
 
-	frame = mpg.SeekFrame(1, true)
+	frame = mpg.SeekFrame(1*time.Second, true)
 	if frame == nil {
 		t.Fatal("SeekFrame: frame is nil")
 	}
 
-	frame = mpg.SeekFrame(100, true)
+	frame = mpg.SeekFrame(100*time.Second, true)
 	if frame != nil {
 		t.Fatal("SeekFrame: expected nil frame")
 	}
 
 	mpg.SetAudioCallback(func(m *mpeg.MPEG, s *mpeg.Samples) {})
 	mpg.SetVideoCallback(func(m *mpeg.MPEG, f *mpeg.Frame) {})
-	mpg.Decode(1)
+	mpg.Decode(1 * time.Second)
 }
 
 func BenchmarkDecodeVideo(b *testing.B) {
