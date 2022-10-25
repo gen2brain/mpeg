@@ -16,8 +16,8 @@ type AudioFormat int
 const (
 	// AudioF32N - 32-bit floating point samples, normalized
 	AudioF32N AudioFormat = iota
-	// AudioF32LR - 32-bit floating point samples, separate channels
-	AudioF32LR
+	// AudioF32NLR - 32-bit floating point samples, normalized, separate channels
+	AudioF32NLR
 	// AudioF32 - 32-bit floating point samples
 	AudioF32
 	// AudioS16 - signed 16-bit samples
@@ -475,12 +475,20 @@ func (a *Audio) decodeFrame() {
 						switch a.format {
 						case AudioF32N:
 							a.samples.Interleaved[((outPos+j)<<1)+ch] = s
-						case AudioF32LR:
+						case AudioF32NLR:
 							out[outPos+j] = s
 						case AudioS16:
-							a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x7FFF)
+							if s < 0 {
+								a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x8000)
+							} else {
+								a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x7FFF)
+							}
 						case AudioF32:
-							a.samples.F32[((outPos+j)<<1)+ch] = s * 0x7FFFFFFF
+							if s < 0 {
+								a.samples.F32[((outPos+j)<<1)+ch] = s * 0x80000000
+							} else {
+								a.samples.F32[((outPos+j)<<1)+ch] = s * 0x7FFFFFFF
+							}
 						}
 					}
 				} // End of synthesis ch loop
