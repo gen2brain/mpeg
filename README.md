@@ -14,11 +14,11 @@ Decoding costs very little CPU time compared to modern video formats. All patent
 
 ### Examples
 
-- [frames](https://github.com/gen2brain/mpeg/blob/main/examples/frames) - extracts all frames from a video and saves them as JPEG
-- [player-eb](https://github.com/gen2brain/mpeg/blob/main/examples/player-eb) - player using `Ebitengine` with YUV->RGB conversion done on CPU
-- [player-rl](https://github.com/gen2brain/mpeg/blob/main/examples/player-rl) - player using `raylib` with YUV->RGB conversion done on CPU
-- [player-sdl](https://github.com/gen2brain/mpeg/blob/main/examples/player-sdl) - player using `SDL2` with accelerated YUV->RGB conversion
-- [player-web](https://github.com/gen2brain/mpeg/blob/main/examples/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
+- [frames](https://github.com/gen2brain/mpeg/blob/main/_examples/frames) - extracts all frames from a video and saves them as JPEG
+- [player-eb](https://github.com/gen2brain/mpeg/blob/main/_examples/player-eb) - player using `Ebitengine` with YUV->RGB conversion done on CPU
+- [player-rl](https://github.com/gen2brain/mpeg/blob/main/_examples/player-rl) - player using `raylib` with YUV->RGB conversion done on CPU
+- [player-sdl](https://github.com/gen2brain/mpeg/blob/main/_examples/player-sdl) - player using `SDL2` with accelerated YUV->RGB conversion
+- [player-web](https://github.com/gen2brain/mpeg/blob/main/_examples/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
 
 ### Format
 
