@@ -12,6 +12,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/jfbus/httprs"
 
 	"github.com/gen2brain/mpeg"
@@ -85,15 +86,15 @@ func newApp(m *mpeg.MPEG) (*app, error) {
 func (a *app) Update() error {
 	a.seekTo = -1
 
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyQ) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) || inpututil.IsKeyJustPressed(ebiten.KeyQ) {
 		return errEnd
-	} else if ebiten.IsKeyPressed(ebiten.KeyF) || ebiten.IsKeyPressed(ebiten.KeyF11) {
+	} else if inpututil.IsKeyJustPressed(ebiten.KeyF) || inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		toggleFullscreen()
-	} else if ebiten.IsKeyPressed(ebiten.KeyRight) {
+	} else if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
 		a.seekTo = a.mpg.Time().Seconds() + 3
-	} else if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+	} else if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
 		a.seekTo = a.mpg.Time().Seconds() - 3
-	} else if ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsKeyPressed(ebiten.KeyP) {
+	} else if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyP) {
 		a.pause = !a.pause
 		if a.pause {
 			a.player.Pause()
