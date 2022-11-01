@@ -19,6 +19,7 @@ Decoding costs very little CPU time compared to modern video formats. All patent
 - [player-rl](https://github.com/gen2brain/mpeg-examples/blob/main/player-rl) - player using `raylib` with YUV->RGB conversion done on CPU
 - [player-sdl](https://github.com/gen2brain/mpeg-examples/blob/main/player-sdl) - player using `SDL2` with accelerated YUV->RGB conversion
 - [player-web](https://github.com/gen2brain/mpeg-examples/blob/main/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
+- [player-xv](https://github.com/gen2brain/mpeg-examples/blob/main/player-xv) - player using `X11/XVideo` and `ALSA`, accelerated, Linux only
 
 ### Format
 
