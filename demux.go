@@ -23,7 +23,7 @@ const (
 	PacketAudio1  = 0xC0
 	PacketAudio2  = 0xC1
 	PacketAudio3  = 0xC2
-	PacketAudio4  = 0xC2
+	PacketAudio4  = 0xC3
 	PacketVideo1  = 0xE0
 )
 
