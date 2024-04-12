@@ -257,6 +257,21 @@ func (b *Buffer) read(count int) int {
 	return value
 }
 
+func (b *Buffer) read1() int {
+	if !b.has(1) {
+		return 0
+	}
+
+	currentByte := int(b.Bytes()[b.bitIndex>>3])
+
+	shift := 7 - (b.bitIndex & 7)
+	value := (currentByte & (1 << shift)) >> shift
+
+	b.bitIndex += 1
+
+	return value
+}
+
 func (b *Buffer) align() {
 	b.bitIndex = ((b.bitIndex + 7) >> 3) << 3 // Align to next byte
 }
@@ -351,7 +366,7 @@ func (b *Buffer) readVlc(table []vlc) int {
 	var state vlc
 
 	for {
-		state = table[int(state.Index)+b.read(1)]
+		state = table[int(state.Index)+b.read1()]
 		if state.Index <= 0 {
 			break
 		}
@@ -364,7 +379,7 @@ func (b *Buffer) readVlcUint(table []vlcUint) uint16 {
 	var state vlcUint
 
 	for {
-		state = table[int(state.Index)+b.read(1)]
+		state = table[int(state.Index)+b.read1()]
 		if state.Index <= 0 {
 			break
 		}
