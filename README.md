@@ -15,7 +15,7 @@ Decoding costs very little CPU time compared to modern video formats. All patent
 ### Examples
 
 - [frames](https://github.com/gen2brain/mpeg-examples/blob/main/frames) - extracts all frames from a video and saves them as JPEG
-- [player-eb](https://github.com/gen2brain/mpeg-examples/blob/main/player-eb) - player using `Ebitengine` with YUV->RGB conversion done on CPU
+- [player-eb](https://github.com/gen2brain/mpeg-examples/blob/main/player-eb) - player using `Ebitengine`, also check better, [accelerated example](https://github.com/hajimehoshi/ebiten/tree/main/examples/video)
 - [player-rl](https://github.com/gen2brain/mpeg-examples/blob/main/player-rl) - player using `raylib` with YUV->RGB conversion done on CPU
 - [player-sdl](https://github.com/gen2brain/mpeg-examples/blob/main/player-sdl) - player using `SDL2` with accelerated YUV->RGB conversion
 - [player-web](https://github.com/gen2brain/mpeg-examples/blob/main/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
