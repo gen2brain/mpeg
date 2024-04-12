@@ -1,7 +1,6 @@
 package mpeg
 
 import (
-	"bytes"
 	"io"
 )
 
@@ -16,10 +15,9 @@ type LoadFunc func(buffer *Buffer)
 // Buffer provides the data source for all other interfaces.
 type Buffer struct {
 	reader io.Reader
-	bytes  *bytes.Buffer
+	bytes  []byte
 
 	bitIndex  int
-	length    int
 	totalSize int
 
 	hasEnded    bool
@@ -53,10 +51,8 @@ func NewBuffer(r io.Reader) (*Buffer, error) {
 	}
 
 	buf.reader = r
-	buf.bytes = bytes.NewBuffer(make([]byte, 0, BufferSize))
-
-	available := buf.bytes.Cap() - buf.bytes.Len()
-	buf.available = make([]byte, available)
+	buf.bytes = make([]byte, 0, BufferSize)
+	buf.available = make([]byte, BufferSize)
 
 	buf.discardRead = true
 
@@ -65,7 +61,7 @@ func NewBuffer(r io.Reader) (*Buffer, error) {
 
 // Bytes returns a slice holding the unread portion of the buffer.
 func (b *Buffer) Bytes() []byte {
-	return b.bytes.Bytes()
+	return b.bytes
 }
 
 // Index returns byte index.
@@ -84,22 +80,18 @@ func (b *Buffer) Write(p []byte) int {
 		b.discardReadBytes()
 	}
 
-	n, err := b.bytes.Write(p)
-	if err != nil {
-		return n
-	}
+	b.bytes = append(b.bytes, p...)
 
-	b.length += n
 	b.hasEnded = false
 
-	return n
+	return len(p)
 }
 
 // SignalEnd marks the current byte length as the end of this buffer and signal that no
 // more data is expected to be written to it. This function should be called
 // just after the last Write().
 func (b *Buffer) SignalEnd() {
-	b.totalSize = b.length
+	b.totalSize = len(b.bytes)
 }
 
 // SetLoadCallback sets a callback that is called whenever the buffer needs more data.
@@ -120,13 +112,13 @@ func (b *Buffer) Size() int {
 		return b.totalSize
 	}
 
-	return b.length
+	return len(b.bytes)
 }
 
 // Remaining returns the number of remaining (yet unread) bytes in the buffer.
 // This can be useful to throttle writing.
 func (b *Buffer) Remaining() int {
-	return b.length - (b.bitIndex >> 3)
+	return len(b.bytes) - (b.bitIndex >> 3)
 }
 
 // HasEnded checks whether the read position of the buffer is at the end and no more data is expected.
@@ -168,19 +160,17 @@ func (b *Buffer) seek(pos int) {
 	if b.reader != nil && b.totalSize > 0 {
 		seeker := b.reader.(io.Seeker)
 		_, _ = seeker.Seek(int64(pos), io.SeekStart)
-		b.bytes.Truncate(0)
+		b.bytes = b.bytes[:0]
 
 		b.bitIndex = 0
-		b.length = 0
 	} else if b.reader == nil {
 		if pos != 0 {
 			return
 		}
 
-		b.bytes.Truncate(0)
+		b.bytes = b.bytes[:0]
 
 		b.bitIndex = 0
-		b.length = 0
 	}
 }
 
@@ -189,7 +179,7 @@ func (b *Buffer) tell() int {
 		seeker := b.reader.(io.Seeker)
 		off, _ := seeker.Seek(0, io.SeekCurrent)
 
-		return int(off) + (b.bitIndex >> 3) - b.length
+		return int(off) + (b.bitIndex >> 3) - len(b.bytes)
 	}
 
 	return b.bitIndex >> 3
@@ -197,33 +187,32 @@ func (b *Buffer) tell() int {
 
 func (b *Buffer) discardReadBytes() {
 	bytePos := b.bitIndex >> 3
-	if bytePos == b.length {
-		b.bytes.Truncate(0)
+	if bytePos == len(b.bytes) {
+		b.bytes = b.bytes[:0]
 
 		b.bitIndex = 0
-		b.length = 0
 	} else if bytePos > 0 {
-		b.bytes.Next(bytePos)
+		copy(b.bytes, b.bytes[bytePos:])
+		b.bytes = b.bytes[:len(b.bytes)-bytePos]
 
 		b.bitIndex -= bytePos << 3
-		b.length -= bytePos
 	}
 }
 
 func (b *Buffer) has(count int) bool {
-	if ((b.length << 3) - b.bitIndex) >= count {
+	if ((len(b.bytes) << 3) - b.bitIndex) >= count {
 		return true
 	}
 
 	if b.loadCallback != nil {
 		b.loadCallback(b)
 
-		if ((b.length << 3) - b.bitIndex) >= count {
+		if ((len(b.bytes) << 3) - b.bitIndex) >= count {
 			return true
 		}
 	}
 
-	if b.totalSize != 0 && b.length == b.totalSize {
+	if b.totalSize != 0 && len(b.bytes) == b.totalSize {
 		b.hasEnded = true
 	}
 
@@ -338,7 +327,7 @@ func (b *Buffer) hasStartCode(code int) int {
 
 func (b *Buffer) findFrameSync() bool {
 	var i int
-	for i = b.bitIndex >> 3; i < b.length-1; i++ {
+	for i = b.bitIndex >> 3; i < len(b.bytes)-1; i++ {
 		if b.Bytes()[i] == 0xFF && (b.Bytes()[i+1]&0xFE) == 0xFC {
 			b.bitIndex = ((i + 1) << 3) + 3
 
