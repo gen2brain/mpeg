@@ -250,7 +250,7 @@ func (a *Audio) decodeHeader() int {
 
 	a.version = a.buf.read(2)
 	a.layer = a.buf.read(2)
-	hasCRC := a.buf.read(1) == 0
+	hasCRC := a.buf.read1() == 0
 
 	if a.version != mpeg1 || a.layer != layerII {
 		return 0
@@ -266,7 +266,7 @@ func (a *Audio) decodeHeader() int {
 		return 0
 	}
 
-	padding := a.buf.read(1)
+	padding := a.buf.read1()
 	a.buf.skip(1) // f_private
 	mode := a.buf.read(2)
 
