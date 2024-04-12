@@ -293,7 +293,7 @@ func (v *Video) decodeSequenceHeader() bool {
 	v.buf.skip(1 + 10 + 1)
 
 	// Load custom intra quant matrix?
-	if v.buf.read(1) != 0 {
+	if v.buf.read1() != 0 {
 		for i := 0; i < 64; i++ {
 			idx := videoZigZag[i]
 			v.intraQuantMatrix[idx] = byte(v.buf.read(8))
@@ -303,7 +303,7 @@ func (v *Video) decodeSequenceHeader() bool {
 	}
 
 	// Load custom non intra quant matrix?
-	if v.buf.read(1) != 0 {
+	if v.buf.read1() != 0 {
 		for i := 0; i < 64; i++ {
 			idx := videoZigZag[i]
 			v.nonIntraQuantMatrix[idx] = byte(v.buf.read(8))
@@ -382,7 +382,7 @@ func (v *Video) decodePicture() {
 
 	// Forward fullPx, fCode
 	if v.pictureType == pictureTypePredictive || v.pictureType == pictureTypeB {
-		v.motionForward.FullPx = v.buf.read(1)
+		v.motionForward.FullPx = v.buf.read1()
 		fCode := v.buf.read(3)
 		if fCode == 0 {
 			// Ignore picture with zero fCode
@@ -393,7 +393,7 @@ func (v *Video) decodePicture() {
 
 	// Backward fullPx, fCode
 	if v.pictureType == pictureTypeB {
-		v.motionBackward.FullPx = v.buf.read(1)
+		v.motionBackward.FullPx = v.buf.read1()
 		fCode := v.buf.read(3)
 		if fCode == 0 {
 			// Ignore picture with zero fCode
@@ -446,7 +446,7 @@ func (v *Video) decodeSlice(slice int) {
 	v.quantizerScale = v.buf.read(5)
 
 	// Skip extra
-	for v.buf.read(1) != 0 {
+	for v.buf.read1() != 0 {
 		v.buf.skip(8)
 	}
 
@@ -948,7 +948,7 @@ func (v *Video) decodeBlock(block int) {
 		run := 0
 		coeff := int(v.buf.readVlcUint(videoDctCoeff))
 
-		if (coeff == 0x0001) && (n > 0) && (v.buf.read(1) == 0) {
+		if (coeff == 0x0001) && (n > 0) && (v.buf.read1() == 0) {
 			// end_of_block
 			break
 		}
@@ -968,7 +968,7 @@ func (v *Video) decodeBlock(block int) {
 		} else {
 			run = coeff >> 8
 			level = coeff & 0xff
-			if (v.buf.read(1)) != 0 {
+			if (v.buf.read1()) != 0 {
 				level = -level
 			}
 		}
