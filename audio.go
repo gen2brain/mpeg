@@ -470,7 +470,7 @@ func (a *Audio) decodeFrame() {
 					}
 
 					for j := 0; j < 32; j++ {
-						s := a.u[j] / 2147418112.0
+						s := a.u[j] / -1090519040.0
 
 						switch a.format {
 						case AudioF32N:
