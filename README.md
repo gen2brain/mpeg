@@ -29,7 +29,7 @@ Note that `.mpg` files can also contain [MPEG-2](https://en.wikipedia.org/wiki/M
 
 You can encode video in a suitable format with `FFmpeg`:
 ```
-ffmpeg -i input.mp4 -c:v mpeg1video -q:v 16 -c:a mp2 -format mpeg output.mpg
+ffmpeg -i input.mp4 -c:v mpeg1video -q:v 0 -c:a mp2 -format mpeg output.mpg
 ```
 
 `-q:v` sets a fixed video quality with a variable bitrate, where `0` is the highest.
