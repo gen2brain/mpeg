@@ -331,6 +331,7 @@ func (m *MPEG) Rewind() {
 
 	m.demux.Rewind()
 	m.time = 0
+	m.hasEnded = false
 }
 
 // Loop returns looping.
