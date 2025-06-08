@@ -1,3 +1,3 @@
 module github.com/gen2brain/mpeg
 
-go 1.19
+go 1.23
