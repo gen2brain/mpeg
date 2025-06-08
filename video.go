@@ -1039,95 +1039,153 @@ func (v *Video) decodeBlock(block int) {
 		// Overwrite (no prediction)
 		if n == 1 {
 			value := (s[0] + 128) >> 8
-			copyValueToDest(int(clamp(value)), d, di, scan)
+			copyValueToDest(clamp(value), d, di, scan)
 			s[0] = 0
 		} else {
-			v.idct(s)
+			v.idct(s, n)
 			copyBlockToDest(s, d, di, scan)
-			for i := range v.blockData {
-				v.blockData[i] = 0
-			}
+			clear(v.blockData)
 		}
 	} else {
 		// Add data to the predicted macroblock
 		if n == 1 {
 			value := (s[0] + 128) >> 8
-			addValueToDest(value, d, di, scan)
+			addValueToDest(byte(value), d, di, scan)
 			s[0] = 0
 		} else {
-			v.idct(s)
+			v.idct(s, n)
 			addBlockToDest(s, d, di, scan)
-			for i := range v.blockData {
-				v.blockData[i] = 0
-			}
+			clear(v.blockData)
 		}
 	}
 }
 
-func (v *Video) idct(block []int) {
+func (v *Video) idct(block []int, maxIndex int) {
 	// See http://vsr.informatik.tu-chemnitz.de/~jan/MPEG/HTML/IDCT.html for more info.
 
 	var b1, b3, b4, b6, b7, tmp1, tmp2, m0,
 		x0, x1, x2, x3, x4, y3, y4, y5, y6, y7 int
 
-	// Transform columns
-	for i := 0; i < 8; i++ {
-		b1 = block[4*8+i]
-		b3 = block[2*8+i] + block[6*8+i]
-		b4 = block[5*8+i] - block[3*8+i]
-		tmp1 = block[1*8+i] + block[7*8+i]
-		tmp2 = block[3*8+i] + block[5*8+i]
-		b6 = block[1*8+i] - block[7*8+i]
-		b7 = tmp1 + tmp2
-		m0 = block[0*8+i]
-		x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
-		x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
-		x1 = m0 - b1
-		x2 = (((block[2*8+i]-block[6*8+i])*362 + 128) >> 8) - b3
-		x3 = m0 + b1
-		y3 = x1 + x2
-		y4 = x3 + b3
-		y5 = x1 - x2
-		y6 = x3 - b3
-		y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
-		block[0*8+i] = b7 + y4
-		block[1*8+i] = x4 + y3
-		block[2*8+i] = y5 - x0
-		block[3*8+i] = y6 - y7
-		block[4*8+i] = y6 + y7
-		block[5*8+i] = x0 + y5
-		block[6*8+i] = y3 - x4
-		block[7*8+i] = y4 - b7
-	}
+	if maxIndex < 10 { // much simpler calculations when the matrix is mostly empty
+		// max column is 4th and max row is 4th (at least 3/4 of the matrix is empty)
+		for i := 0; i < 4; i++ { // only need to do 4 columns because the rest result in all 0'sAdd commentMore actions
+			b1 = 0
+			b3 = block[2*8+i]
+			b4 = 0 - block[3*8+i]
+			tmp1 = block[1*8+i]
+			tmp2 = block[3*8+i]
+			b6 = block[1*8+i]
+			b7 = tmp1 + tmp2
+			m0 = block[0*8+i]
+			x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
+			x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
+			x1 = m0 - b1
+			x2 = (((block[2*8+i])*362 + 128) >> 8) - b3
+			x3 = m0 + b1
+			y3 = x1 + x2
+			y4 = x3 + b3
+			y5 = x1 - x2
+			y6 = x3 - b3
+			y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
+			block[0*8+i] = b7 + y4
+			block[1*8+i] = x4 + y3
+			block[2*8+i] = y5 - x0
+			block[3*8+i] = y6 - y7
+			block[4*8+i] = y6 + y7
+			block[5*8+i] = x0 + y5
+			block[6*8+i] = y3 - x4
+			block[7*8+i] = y4 - b7
+		}
 
-	// Transform rows
-	for i := 0; i < 64; i += 8 {
-		b1 = block[4+i]
-		b3 = block[2+i] + block[6+i]
-		b4 = block[5+i] - block[3+i]
-		tmp1 = block[1+i] + block[7+i]
-		tmp2 = block[3+i] + block[5+i]
-		b6 = block[1+i] - block[7+i]
-		b7 = tmp1 + tmp2
-		m0 = block[0+i]
-		x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
-		x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
-		x1 = m0 - b1
-		x2 = (((block[2+i]-block[6+i])*362 + 128) >> 8) - b3
-		x3 = m0 + b1
-		y3 = x1 + x2
-		y4 = x3 + b3
-		y5 = x1 - x2
-		y6 = x3 - b3
-		y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
-		block[0+i] = (b7 + y4 + 128) >> 8
-		block[1+i] = (x4 + y3 + 128) >> 8
-		block[2+i] = (y5 - x0 + 128) >> 8
-		block[3+i] = (y6 - y7 + 128) >> 8
-		block[4+i] = (y6 + y7 + 128) >> 8
-		block[5+i] = (x0 + y5 + 128) >> 8
-		block[6+i] = (y3 - x4 + 128) >> 8
-		block[7+i] = (y4 - b7 + 128) >> 8
+		// Transform rows
+		for i := 0; i < 64; i += 8 {
+			b1 = 0
+			b3 = block[2+i]
+			b4 = 0 - block[3+i]
+			tmp1 = block[1+i]
+			tmp2 = block[3+i]
+			b6 = block[1+i]
+			b7 = tmp1 + tmp2
+			m0 = block[0+i]
+			x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
+			x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
+			x1 = m0 - b1
+			x2 = (((block[2+i])*362 + 128) >> 8) - b3
+			x3 = m0 + b1
+			y3 = x1 + x2
+			y4 = x3 + b3
+			y5 = x1 - x2
+			y6 = x3 - b3
+			y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
+			block[0+i] = (b7 + y4 + 128) >> 8
+			block[1+i] = (x4 + y3 + 128) >> 8
+			block[2+i] = (y5 - x0 + 128) >> 8
+			block[3+i] = (y6 - y7 + 128) >> 8
+			block[4+i] = (y6 + y7 + 128) >> 8
+			block[5+i] = (x0 + y5 + 128) >> 8
+			block[6+i] = (y3 - x4 + 128) >> 8
+			block[7+i] = (y4 - b7 + 128) >> 8
+		}
+	} else {
+		// Transform columns
+		for i := 0; i < 8; i++ {
+			b1 = block[4*8+i]
+			b3 = block[2*8+i] + block[6*8+i]
+			b4 = block[5*8+i] - block[3*8+i]
+			tmp1 = block[1*8+i] + block[7*8+i]
+			tmp2 = block[3*8+i] + block[5*8+i]
+			b6 = block[1*8+i] - block[7*8+i]
+			b7 = tmp1 + tmp2
+			m0 = block[0*8+i]
+			x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
+			x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
+			x1 = m0 - b1
+			x2 = (((block[2*8+i]-block[6*8+i])*362 + 128) >> 8) - b3
+			x3 = m0 + b1
+			y3 = x1 + x2
+			y4 = x3 + b3
+			y5 = x1 - x2
+			y6 = x3 - b3
+			y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
+			block[0*8+i] = b7 + y4
+			block[1*8+i] = x4 + y3
+			block[2*8+i] = y5 - x0
+			block[3*8+i] = y6 - y7
+			block[4*8+i] = y6 + y7
+			block[5*8+i] = x0 + y5
+			block[6*8+i] = y3 - x4
+			block[7*8+i] = y4 - b7
+		}
+
+		// Transform rows
+		for i := 0; i < 64; i += 8 {
+			b1 = block[4+i]
+			b3 = block[2+i] + block[6+i]
+			b4 = block[5+i] - block[3+i]
+			tmp1 = block[1+i] + block[7+i]
+			tmp2 = block[3+i] + block[5+i]
+			b6 = block[1+i] - block[7+i]
+			b7 = tmp1 + tmp2
+			m0 = block[0+i]
+			x4 = ((b6*473 - b4*196 + 128) >> 8) - b7
+			x0 = x4 - (((tmp1-tmp2)*362 + 128) >> 8)
+			x1 = m0 - b1
+			x2 = (((block[2+i]-block[6+i])*362 + 128) >> 8) - b3
+			x3 = m0 + b1
+			y3 = x1 + x2
+			y4 = x3 + b3
+			y5 = x1 - x2
+			y6 = x3 - b3
+			y7 = -x0 - ((b4*473 + b6*196 + 128) >> 8)
+			block[0+i] = (b7 + y4 + 128) >> 8
+			block[1+i] = (x4 + y3 + 128) >> 8
+			block[2+i] = (y5 - x0 + 128) >> 8
+			block[3+i] = (y6 - y7 + 128) >> 8
+			block[4+i] = (y6 + y7 + 128) >> 8
+			block[5+i] = (x0 + y5 + 128) >> 8
+			block[6+i] = (y3 - x4 + 128) >> 8
+			block[7+i] = (y4 - b7 + 128) >> 8
+		}
 	}
 }
 
@@ -1174,7 +1232,7 @@ func addBlockToDest(block []int, dest []byte, index, scan int) {
 	}
 }
 
-func copyValueToDest(value int, dest []byte, index, scan int) {
+func copyValueToDest(value byte, dest []byte, index, scan int) {
 	val := clamp(value)
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = val
@@ -1190,16 +1248,16 @@ func copyValueToDest(value int, dest []byte, index, scan int) {
 	}
 }
 
-func addValueToDest(value int, dest []byte, index, scan int) {
+func addValueToDest(value byte, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
-		dest[index+0] = clamp(int(dest[index+0]) + value)
-		dest[index+1] = clamp(int(dest[index+1]) + value)
-		dest[index+2] = clamp(int(dest[index+2]) + value)
-		dest[index+3] = clamp(int(dest[index+3]) + value)
-		dest[index+4] = clamp(int(dest[index+4]) + value)
-		dest[index+5] = clamp(int(dest[index+5]) + value)
-		dest[index+6] = clamp(int(dest[index+6]) + value)
-		dest[index+7] = clamp(int(dest[index+7]) + value)
+		dest[index+0] = clamp(dest[index+0] + value)
+		dest[index+1] = clamp(dest[index+1] + value)
+		dest[index+2] = clamp(dest[index+2] + value)
+		dest[index+3] = clamp(dest[index+3] + value)
+		dest[index+4] = clamp(dest[index+4] + value)
+		dest[index+5] = clamp(dest[index+5] + value)
+		dest[index+6] = clamp(dest[index+6] + value)
+		dest[index+7] = clamp(dest[index+7] + value)
 
 		index += scan + 8
 	}
@@ -1213,14 +1271,10 @@ func abs(x int) int {
 	return x
 }
 
-func clamp(n int) byte {
-	if n > 255 {
-		n = 255
-	} else if n < 0 {
-		n = 0
-	}
+type number interface{ int | uint8 }
 
-	return byte(n)
+func clamp[T number](n T) byte {
+	return byte(min(max(n, 0), 255))
 }
 
 func startIsSlice(c int) bool {

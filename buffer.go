@@ -221,10 +221,6 @@ func (b *Buffer) has(count int) bool {
 }
 
 func (b *Buffer) read(count int) int {
-	if !b.has(count) {
-		return 0
-	}
-
 	value := 0
 	for count != 0 {
 		currentByte := int(b.Bytes()[b.bitIndex>>3])
@@ -248,10 +244,6 @@ func (b *Buffer) read(count int) int {
 }
 
 func (b *Buffer) read1() int {
-	if !b.has(1) {
-		return 0
-	}
-
 	currentByte := int(b.Bytes()[b.bitIndex>>3])
 
 	shift := 7 - (b.bitIndex & 7)
@@ -287,8 +279,9 @@ func (b *Buffer) skipBytes(v byte) int {
 func (b *Buffer) nextStartCode() int {
 	b.align()
 
-	for b.has(5 << 3) {
-		data := b.Bytes()
+retry:
+	for ((len(b.bytes) << 3) - b.bitIndex) >= (5 << 3) {
+		data := b.bytes
 		byteIndex := b.bitIndex >> 3
 		if data[byteIndex] == 0x00 &&
 			data[byteIndex+1] == 0x00 &&
@@ -299,6 +292,10 @@ func (b *Buffer) nextStartCode() int {
 		}
 
 		b.bitIndex += 8
+	}
+
+	if b.has(5 << 3) {
+		goto retry
 	}
 
 	return -1
@@ -329,7 +326,7 @@ func (b *Buffer) hasStartCode(code int) int {
 func (b *Buffer) findFrameSync() bool {
 	var i int
 	for i = b.bitIndex >> 3; i < len(b.bytes)-1; i++ {
-		if b.Bytes()[i] == 0xFF && (b.Bytes()[i+1]&0xFE) == 0xFC {
+		if b.bytes[i] == 0xFF && (b.bytes[i+1]&0xFE) == 0xFC {
 			b.bitIndex = ((i + 1) << 3) + 3
 
 			return true
