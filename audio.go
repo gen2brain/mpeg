@@ -1,8 +1,6 @@
 package mpeg
 
 import (
-	"bytes"
-	"io"
 	"unsafe"
 )
 
@@ -46,30 +44,9 @@ func (s *Samples) Bytes() []byte {
 		return unsafe.Slice((*byte)(unsafe.Pointer(&s.F32[0])), len(s.F32)*4)
 	case AudioS16:
 		return unsafe.Slice((*byte)(unsafe.Pointer(&s.S16[0])), len(s.S16)*2)
+	default:
+		return nil
 	}
-
-	return nil
-}
-
-type SamplesReader struct {
-	reader *bytes.Reader
-}
-
-// Read implements the io.Reader interface.
-func (s *SamplesReader) Read(b []byte) (int, error) {
-	if s.reader.Len() == 0 {
-		_, err := s.reader.Seek(0, io.SeekStart)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	return s.reader.Read(b)
-}
-
-// Seek implements the io.Seeker interface.
-func (s *SamplesReader) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
 }
 
 // Audio decodes MPEG-1 Audio Layer II (mp2) data into raw samples.
@@ -132,23 +109,6 @@ func NewAudio(buf *Buffer) *Audio {
 	audio.nextFrameDataSize = audio.decodeHeader()
 
 	return audio
-}
-
-// Reader returns samples reader.
-func (a *Audio) Reader() io.Reader {
-	switch a.format {
-	case AudioF32N:
-		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.Interleaved[0])), len(a.samples.Interleaved)*4)
-		return &SamplesReader{bytes.NewReader(b)}
-	case AudioF32:
-		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.F32[0])), len(a.samples.F32)*4)
-		return &SamplesReader{bytes.NewReader(b)}
-	case AudioS16:
-		b := unsafe.Slice((*byte)(unsafe.Pointer(&a.samples.S16[0])), len(a.samples.S16)*2)
-		return &SamplesReader{bytes.NewReader(b)}
-	}
-
-	return nil
 }
 
 // Buffer returns audio buffer.
