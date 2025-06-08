@@ -1,6 +1,7 @@
 package mpeg
 
 import (
+	"errors"
 	"io"
 )
 
@@ -136,7 +137,7 @@ func (b *Buffer) LoadReaderCallback(buffer *Buffer) {
 
 	n, err := io.ReadFull(b.reader, p)
 	if err != nil {
-		if err == io.ErrUnexpectedEOF {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
 			p = p[:n]
 		} else if err == io.EOF {
 			b.hasEnded = true
