@@ -48,6 +48,10 @@ func TestDemux(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if !demux.Probe(5000 * 1024) {
+		t.Error("Probe: no MPEG video or audio streams found")
+	}
+
 	if !demux.HasHeaders() {
 		t.Error("HasHeaders: no headers")
 	}
@@ -150,6 +154,10 @@ func TestMpeg(t *testing.T) {
 	mpg, err := mpeg.New(bytes.NewReader(testMpg))
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if !mpg.Probe(5000 * 1024) {
+		t.Error("Probe: no MPEG video or audio streams found")
 	}
 
 	if !mpg.HasHeaders() {

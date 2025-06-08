@@ -114,8 +114,8 @@ func New(r io.Reader) (*MPEG, error) {
 	return m, nil
 }
 
-// HasHeaders checks whether we have headers on all available streams, and if we can accurately
-// report the number of video/audio streams, video dimensions, framerate and audio samplerate.
+// HasHeaders checks whether we have headers on all available streams, and if we can report the
+// number of video/audio streams, video dimensions, framerate and audio samplerate.
 func (m *MPEG) HasHeaders() bool {
 	if !m.demux.HasHeaders() {
 		return false
@@ -130,6 +130,25 @@ func (m *MPEG) HasHeaders() bool {
 	}
 
 	return true
+}
+
+// Probe probes the MPEG-PS data to find the actual number of video and audio streams within the buffer.
+// For certain files (e.g. VideoCD) this can be more accurate than just reading the number of streams from the headers.
+// This should only be used when the underlying reader is seekable.
+// The necessary probe size is dependent on the files you expect to read. Usually a few hundred KB should be enough to find all streams.
+// Use Num{Audio|Video}Streams() afterwards to get the number of streams in the file.
+// Returns true if any streams were found within the probe size.
+func (m *MPEG) Probe(probeSize int) bool {
+	if !m.demux.Probe(probeSize) {
+		return false
+	}
+
+	// Re-init decoders
+	m.hasDecoders = false
+	m.videoPacketType = 0
+	m.audioPacketType = 0
+
+	return m.initDecoders()
 }
 
 // Done returns done channel.
@@ -451,7 +470,7 @@ func (m *MPEG) SeekFrame(tm time.Duration, seekExact bool) *Frame {
 	duration := m.demux.Duration(typ)
 
 	if tm.Seconds() < 0 {
-		tm = 0
+		tm = time.Duration(0)
 	} else if tm.Seconds() > duration {
 		tm = time.Duration(duration * float64(time.Second))
 	}
@@ -570,12 +589,15 @@ func (m *MPEG) initDecoders() bool {
 			m.videoPacketType = PacketVideo1
 		}
 
-		m.videoBuffer, err = NewBuffer(nil)
-		if err != nil {
-			return false
-		}
+		if m.videoDecoder == nil {
+			m.videoBuffer, err = NewBuffer(nil)
+			if err != nil {
+				return false
+			}
 
-		m.videoBuffer.SetLoadCallback(m.readVideoPacket)
+			m.videoBuffer.SetLoadCallback(m.readVideoPacket)
+			m.videoDecoder = NewVideo(m.videoBuffer)
+		}
 	}
 
 	if m.demux.NumAudioStreams() > 0 {
@@ -583,20 +605,15 @@ func (m *MPEG) initDecoders() bool {
 			m.audioPacketType = PacketAudio1 + m.audioStreamIndex
 		}
 
-		m.audioBuffer, err = NewBuffer(nil)
-		if err != nil {
-			return false
+		if m.audioDecoder == nil {
+			m.audioBuffer, err = NewBuffer(nil)
+			if err != nil {
+				return false
+			}
+
+			m.audioBuffer.SetLoadCallback(m.readAudioPacket)
+			m.audioDecoder = NewAudio(m.audioBuffer)
 		}
-
-		m.audioBuffer.SetLoadCallback(m.readAudioPacket)
-	}
-
-	if m.videoBuffer != nil {
-		m.videoDecoder = NewVideo(m.videoBuffer)
-	}
-
-	if m.audioBuffer != nil {
-		m.audioDecoder = NewAudio(m.audioBuffer)
 	}
 
 	m.hasDecoders = true

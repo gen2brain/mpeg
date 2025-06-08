@@ -130,6 +130,47 @@ func (d *Demux) HasHeaders() bool {
 	return true
 }
 
+// Probe probes the file for the actual number of video/audio streams.
+func (d *Demux) Probe(probeSize int) bool {
+	prevPos := d.buf.tell()
+
+	videoStream := false
+	audioStreams := [4]bool{false, false, false, false}
+
+	for {
+		d.startCode = d.buf.nextStartCode()
+		if d.startCode == PacketVideo1 {
+			videoStream = true
+		} else if d.startCode >= PacketAudio1 && d.startCode <= PacketAudio4 {
+			audioStreams[d.startCode-PacketAudio1] = true
+		}
+
+		if d.startCode == -1 || d.buf.tell()-prevPos > probeSize {
+			break
+		}
+	}
+
+	d.numVideoStreams = 0
+	if videoStream {
+		d.numVideoStreams = 1
+	}
+
+	d.numAudioStreams = 0
+	for i := 0; i < 4; i++ {
+		if audioStreams[i] {
+			d.numAudioStreams++
+		}
+	}
+
+	d.buf.seek(prevPos)
+
+	if d.numVideoStreams > 0 || d.numAudioStreams > 0 {
+		return true
+	}
+
+	return false
+}
+
 // NumVideoStreams returns the number of video streams found in the system header.
 func (d *Demux) NumVideoStreams() int {
 	if d.HasHeaders() {
