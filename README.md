@@ -1,7 +1,6 @@
 ## mpeg
 [![Status](https://github.com/gen2brain/mpeg/actions/workflows/test.yml/badge.svg)](https://github.com/gen2brain/mpeg/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/gen2brain/mpeg.svg)](https://pkg.go.dev/github.com/gen2brain/mpeg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gen2brain/mpeg?branch=main)](https://goreportcard.com/report/github.com/gen2brain/mpeg) 
 
 `MPEG-1` Video decoder, `MP2` Audio decoder and `MPEG-PS` Demuxer in pure Go.
 
@@ -35,6 +34,15 @@ ffmpeg -i input.mp4 -c:v mpeg1video -q:v 0 -c:a mp2 -format mpeg output.mpg
 `-q:v` sets a fixed video quality with a variable bitrate, where `0` is the highest.
 You can use `-b:v` to set a fixed bitrate instead; e.g. `-b:v 2000k` for 2000 kbit/s.
 Refer to the [FFmpeg documentation](https://ffmpeg.org/ffmpeg.html#Options) for more details.
+
+If you have FFmpeg compiled with `libtwolame` (An optimised MP2 encoder), you can use `-c:a libtwolame -b:a 224k` instead of `-c:a mp2`.
+
+If you just want to quickly test the library, try this file:
+[https://gen2brain.github.io/mpeg/sintel.mpg](https://gen2brain.github.io/mpeg/sintel.mpg)
+
+### Build tags
+
+* `noasm` - do not use assembly optimizations
 
 ### Credits
 
