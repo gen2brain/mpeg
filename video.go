@@ -90,7 +90,7 @@ type Video struct {
 	macroblockType  int
 	macroblockIntra bool
 
-	dcPredictor []int
+	dcPredictor [3]int
 
 	buf *Buffer
 
@@ -98,9 +98,9 @@ type Video struct {
 	frameForward  Frame
 	frameBackward Frame
 
-	blockData           []int
-	intraQuantMatrix    []byte
-	nonIntraQuantMatrix []byte
+	blockData           [64]int
+	intraQuantMatrix    [64]byte
+	nonIntraQuantMatrix [64]byte
 
 	hasReferenceFrame bool
 	assumeNoBFrames   bool
@@ -110,11 +110,6 @@ type Video struct {
 func NewVideo(buf *Buffer) *Video {
 	video := &Video{}
 	video.buf = buf
-
-	video.dcPredictor = make([]int, 3)
-	video.blockData = make([]int, 64)
-	video.intraQuantMatrix = make([]byte, 64)
-	video.nonIntraQuantMatrix = make([]byte, 64)
 
 	// Attempt to decode the sequence header
 	video.startCode = video.buf.findStartCode(startSequence)
@@ -299,7 +294,9 @@ func (v *Video) decodeSequenceHeader() bool {
 			v.intraQuantMatrix[idx] = byte(v.buf.read(8))
 		}
 	} else {
-		copy(v.intraQuantMatrix, videoIntraQuantMatrix)
+		for i := 0; i < len(videoIntraQuantMatrix); i++ {
+			v.intraQuantMatrix[i] = videoIntraQuantMatrix[i]
+		}
 	}
 
 	// Load custom non intra quant matrix?
@@ -309,7 +306,9 @@ func (v *Video) decodeSequenceHeader() bool {
 			v.nonIntraQuantMatrix[idx] = byte(v.buf.read(8))
 		}
 	} else {
-		copy(v.nonIntraQuantMatrix, videoNonIntraQuantMatrix)
+		for i := 0; i < len(videoNonIntraQuantMatrix); i++ {
+			v.nonIntraQuantMatrix[i] = videoNonIntraQuantMatrix[i]
+		}
 	}
 
 	v.mbWidth = (v.width + 15) >> 4
@@ -623,287 +622,21 @@ func (v *Video) predictMacroblock() {
 		}
 
 		if v.motionForward.IsSet {
-			v.copyMacroblock(fwH, fwV, &v.frameForward)
+			copyMacroblock(fwH, fwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameForward, &v.frameCurrent)
 			if v.motionBackward.IsSet {
-				v.copyMacroblock(bwH, bwV, &v.frameBackward)
+				copyMacroblock(bwH, bwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameBackward, &v.frameCurrent)
 			}
 		} else {
-			v.copyMacroblock(bwH, bwV, &v.frameBackward)
+			copyMacroblock(bwH, bwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameBackward, &v.frameCurrent)
 		}
 	} else {
-		v.copyMacroblock(fwH, fwV, &v.frameForward)
-	}
-}
-
-func (v *Video) copyMacroblock(motionH, motionV int, s *Frame) {
-	// We use 32bit writes here
-	d := &v.frameCurrent
-	dY := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Y.Data[0])), len(d.Y.Data)/4)
-	dCb := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Cb.Data[0])), len(d.Cb.Data)/4)
-	dCr := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Cr.Data[0])), len(d.Cr.Data)/4)
-
-	// Luminance
-	width := v.lumaWidth
-	scan := width - 16
-
-	hp := motionH >> 1
-	vp := motionV >> 1
-	oddH := (motionH & 1) == 1
-	oddV := (motionV & 1) == 1
-
-	si := ((v.mbRow<<4)+vp)*width + (v.mbCol << 4) + hp
-	di := (v.mbRow*width + v.mbCol) << 2
-	last := di + (width << 2)
-
-	var y1, y2, y uint64
-
-	if oddH {
-		if oddV {
-			for di < last {
-				y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-				si++
-
-				for x := 0; x < 4; x++ {
-					y2 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y = ((y1 + y2 + 2) >> 2) & 0xff
-
-					y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 6) & 0xff00
-
-					y2 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 14) & 0xff0000
-
-					y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 22) & 0xff000000
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		} else {
-			for di < last {
-				y1 = uint64(s.Y.Data[si])
-				si++
-				for x := 0; x < 4; x++ {
-					y2 = uint64(s.Y.Data[si])
-					si++
-					y = ((y1 + y2 + 1) >> 1) & 0xff
-
-					y1 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 7) & 0xff00
-
-					y2 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 15) & 0xff0000
-
-					y1 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 23) & 0xff000000
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		}
-	} else {
-		if oddV {
-			for di < last {
-				for x := 0; x < 4; x++ {
-					y = ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) >> 1) & 0xff
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 7) & 0xff00
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 15) & 0xff0000
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 23) & 0xff000000
-					si++
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		} else {
-			for di < last {
-				for x := 0; x < 4; x++ {
-					y = uint64(s.Y.Data[si])
-					si++
-					y |= uint64(s.Y.Data[si]) << 8
-					si++
-					y |= uint64(s.Y.Data[si]) << 16
-					si++
-					y |= uint64(s.Y.Data[si]) << 24
-					si++
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		}
-	}
-
-	// Chrominance
-	width = v.chromaWidth
-	scan = width - 8
-
-	hp = (motionH / 2) >> 1
-	vp = (motionV / 2) >> 1
-	oddH = ((motionH / 2) & 1) == 1
-	oddV = ((motionV / 2) & 1) == 1
-
-	si = ((v.mbRow<<3)+vp)*width + (v.mbCol << 3) + hp
-	di = (v.mbRow*width + v.mbCol) << 1
-	last = di + (width << 1)
-
-	var cb1, cb2, cb, cr1, cr2, cr uint64
-	if oddH {
-		if oddV {
-			for di < last {
-				cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-				cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-				si++
-				for x := 0; x < 2; x++ {
-					cr2 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb2 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr = ((cr1 + cr2 + 2) >> 2) & 0xff
-					cb = ((cb1 + cb2 + 2) >> 2) & 0xff
-
-					cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 6) & 0xff00
-					cb |= ((cb1 + cb2 + 2) << 6) & 0xff00
-
-					cr2 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb2 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 14) & 0xff0000
-					cb |= ((cb1 + cb2 + 2) << 14) & 0xff0000
-
-					cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 22) & 0xff000000
-					cb |= ((cb1 + cb2 + 2) << 22) & 0xff000000
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		} else {
-			for di < last {
-				cr1 = uint64(s.Cr.Data[si])
-				cb1 = uint64(s.Cb.Data[si])
-				si++
-				for x := 0; x < 2; x++ {
-					cr2 = uint64(s.Cr.Data[si])
-					cb2 = uint64(s.Cb.Data[si])
-					si++
-					cr = ((cr1 + cr2 + 1) >> 1) & 0xff
-					cb = ((cb1 + cb2 + 1) >> 1) & 0xff
-
-					cr1 = uint64(s.Cr.Data[si])
-					cb1 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 7) & 0xff00
-					cb |= ((cb1 + cb2 + 1) << 7) & 0xff00
-
-					cr2 = uint64(s.Cr.Data[si])
-					cb2 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 15) & 0xff0000
-					cb |= ((cb1 + cb2 + 1) << 15) & 0xff0000
-
-					cr1 = uint64(s.Cr.Data[si])
-					cb1 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 23) & 0xff000000
-					cb |= ((cb1 + cb2 + 1) << 23) & 0xff000000
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		}
-	} else {
-		if oddV {
-			for di < last {
-				for x := 0; x < 2; x++ {
-					cr = ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) >> 1) & 0xff
-					cb = ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) >> 1) & 0xff
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 7) & 0xff00
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 7) & 0xff00
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 15) & 0xff0000
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 15) & 0xff0000
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 23) & 0xff000000
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 23) & 0xff000000
-					si++
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		} else {
-			for di < last {
-				for x := 0; x < 2; x++ {
-					cr = uint64(s.Cr.Data[si])
-					cb = uint64(s.Cb.Data[si])
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 8
-					cb |= uint64(s.Cb.Data[si]) << 8
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 16
-					cb |= uint64(s.Cb.Data[si]) << 16
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 24
-					cb |= uint64(s.Cb.Data[si]) << 24
-					si++
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		}
+		copyMacroblock(fwH, fwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameForward, &v.frameCurrent)
 	}
 }
 
 func (v *Video) decodeBlock(block int) {
 	var n int
-	var quantMatrix []byte
+	var quantMatrix [64]byte
 
 	// Decode DC coefficient of intra-coded blocks
 	if v.macroblockIntra {
@@ -1034,33 +767,36 @@ func (v *Video) decodeBlock(block int) {
 		scan = (v.lumaWidth >> 1) - 8
 	}
 
-	s := v.blockData
 	if v.macroblockIntra {
 		// Overwrite (no prediction)
 		if n == 1 {
-			value := (s[0] + 128) >> 8
+			value := (v.blockData[0] + 128) >> 8
 			copyValueToDest(clamp(value), d, di, scan)
-			s[0] = 0
+			v.blockData[0] = 0
 		} else {
-			v.idct(s, n)
-			copyBlockToDest(s, d, di, scan)
-			clear(v.blockData)
+			idct(&v.blockData, n)
+			copyBlockToDest(v.blockData, d, di, scan)
+			for i := 0; i < 64; i++ {
+				v.blockData[i] = 0
+			}
 		}
 	} else {
 		// Add data to the predicted macroblock
 		if n == 1 {
-			value := (s[0] + 128) >> 8
+			value := (v.blockData[0] + 128) >> 8
 			addValueToDest(byte(value), d, di, scan)
-			s[0] = 0
+			v.blockData[0] = 0
 		} else {
-			v.idct(s, n)
-			addBlockToDest(s, d, di, scan)
-			clear(v.blockData)
+			idct(&v.blockData, n)
+			addBlockToDest(v.blockData, d, di, scan)
+			for i := 0; i < 64; i++ {
+				v.blockData[i] = 0
+			}
 		}
 	}
 }
 
-func (v *Video) idct(block []int, maxIndex int) {
+func idct(block *[64]int, maxIndex int) {
 	// See http://vsr.informatik.tu-chemnitz.de/~jan/MPEG/HTML/IDCT.html for more info.
 
 	var b1, b3, b4, b6, b7, tmp1, tmp2, m0,
@@ -1068,7 +804,7 @@ func (v *Video) idct(block []int, maxIndex int) {
 
 	if maxIndex < 10 { // much simpler calculations when the matrix is mostly empty
 		// max column is 4th and max row is 4th (at least 3/4 of the matrix is empty)
-		for i := 0; i < 4; i++ { // only need to do 4 columns because the rest result in all 0'sAdd commentMore actions
+		for i := 0; i < 4; i++ { // only need to do 4 columns because the rest result in all 0's
 			b1 = 0
 			b3 = block[2*8+i]
 			b4 = 0 - block[3*8+i]
@@ -1202,7 +938,7 @@ const (
 	startExtension  = 0xB5
 )
 
-func copyBlockToDest(block []int, dest []byte, index, scan int) {
+func copyBlockToDest(block [64]int, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = clamp(block[n+0])
 		dest[index+1] = clamp(block[n+1])
@@ -1217,7 +953,7 @@ func copyBlockToDest(block []int, dest []byte, index, scan int) {
 	}
 }
 
-func addBlockToDest(block []int, dest []byte, index, scan int) {
+func addBlockToDest(block [64]int, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = clamp(int(dest[index+0]) + block[n+0])
 		dest[index+1] = clamp(int(dest[index+1]) + block[n+1])

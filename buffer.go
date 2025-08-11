@@ -60,7 +60,7 @@ func NewBuffer(r io.Reader) (*Buffer, error) {
 	return buf, nil
 }
 
-// Bytes returns a slice holding the unread portion of the buffer.
+// Bytes return a slice holding the unread portion of the buffer.
 func (b *Buffer) Bytes() []byte {
 	return b.bytes
 }
@@ -223,11 +223,11 @@ func (b *Buffer) has(count int) bool {
 func (b *Buffer) read(count int) int {
 	value := 0
 	for count != 0 {
-		currentByte := int(b.Bytes()[b.bitIndex>>3])
+		currentByte := int(b.bytes[b.bitIndex>>3])
 
 		remaining := 8 - (b.bitIndex & 7) // Remaining bits in byte
 		read := count
-		if remaining < count { // Bits in self run
+		if remaining < count { // Bits in self-run
 			read = remaining
 		}
 
@@ -244,7 +244,7 @@ func (b *Buffer) read(count int) int {
 }
 
 func (b *Buffer) read1() int {
-	currentByte := int(b.Bytes()[b.bitIndex>>3])
+	currentByte := int(b.bytes[b.bitIndex>>3])
 
 	shift := 7 - (b.bitIndex & 7)
 	value := (currentByte & (1 << shift)) >> shift
@@ -268,7 +268,7 @@ func (b *Buffer) skipBytes(v byte) int {
 	b.align()
 
 	skipped := 0
-	for b.has(8) && b.Bytes()[b.bitIndex>>3] == v {
+	for b.has(8) && b.bytes[b.bitIndex>>3] == v {
 		b.bitIndex += 8
 		skipped++
 	}

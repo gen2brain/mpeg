@@ -74,9 +74,9 @@ type Audio struct {
 	samples Samples
 	format  AudioFormat
 
-	d []float32
-	v [][]float32
-	u []float32
+	d [1024]float32
+	v [2][1024]float32
+	u [32]float32
 }
 
 // NewAudio creates an audio decoder with buffer as a source.
@@ -92,18 +92,10 @@ func NewAudio(buf *Buffer) *Audio {
 	audio.samples.Right = make([]float32, SamplesPerFrame)
 	audio.samples.Interleaved = make([]float32, SamplesPerFrame*2)
 
-	audio.d = make([]float32, 1024)
 	for i, d := range synthesisWindow {
 		audio.d[i] = d
 		audio.d[i+512] = d
 	}
-
-	audio.v = make([][]float32, 2)
-	for i := range audio.v {
-		audio.v[i] = make([]float32, 1024)
-	}
-
-	audio.u = make([]float32, 32)
 
 	// Attempt to decode first header
 	audio.nextFrameDataSize = audio.decodeHeader()
@@ -388,7 +380,7 @@ func (a *Audio) decodeFrame() {
 				a.vPos = (a.vPos - 64) & 1023
 
 				for ch := 0; ch < 2; ch++ {
-					a.idct36(a.sample[ch], p, a.v[ch], a.vPos)
+					idct36(&a.sample[ch], p, &a.v[ch], a.vPos)
 
 					// Build U, windowing, calculate output
 					for i := range a.u {
@@ -524,7 +516,7 @@ func (a *Audio) readSamples(ch, sb, part int) {
 	a.sample[ch][sb][2] = (val*(sf>>12) + ((val*(sf&4095) + 2048) >> 12)) >> 12
 }
 
-func (a *Audio) idct36(s [32][3]int, ss int, d []float32, dp int) {
+func idct36(s *[32][3]int, ss int, d *[1024]float32, dp int) {
 	var t01, t02, t03, t04, t05, t06, t07, t08, t09, t10, t11, t12,
 		t13, t14, t15, t16, t17, t18, t19, t20, t21, t22, t23, t24,
 		t25, t26, t27, t28, t29, t30, t31, t32, t33 float32
