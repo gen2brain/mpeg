@@ -7,7 +7,7 @@
 // for luma (16x16) and chroma (8x8) blocks, with rounding as per MPEG spec.
 //
 // Function signature:
-// func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+// func copyMacroblockSSE2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
 //
 // Registers used:
 //   R8  = lumaWidth                         // Holds luma stride
@@ -534,7 +534,7 @@ chroma_cr_bilin_loop:
 // for luma (vs 16 bytes with SSE2) and 16 bytes for chroma (vs 8 bytes).
 //
 // Function signature:
-// func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+// func copyMacroblockAVX2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
 //
 // Registers used:
 //   R8  = lumaWidth (luma stride)
