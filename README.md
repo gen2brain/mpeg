@@ -38,8 +38,9 @@ Refer to the [FFmpeg documentation](https://ffmpeg.org/ffmpeg.html#Options) for 
 
 If you have FFmpeg compiled with `libtwolame` (an optimised MP2 encoder), you can use `-c:a libtwolame -b:a 224k` instead of `-c:a mp2`.
 
-If you just want to quickly test the library, try this file:
+If you just want to test the library quickly, try this file:
 [https://gen2brain.github.io/mpeg/sintel.mpg](https://gen2brain.github.io/mpeg/sintel.mpg)
+Example players are also able to handle HTTP streams so you can use the URL directly.
 
 ### Build tags
 
