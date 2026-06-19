@@ -381,61 +381,34 @@ func (a *Audio) decodeFrame() {
 
 				for ch := 0; ch < 2; ch++ {
 					idct36(&a.sample[ch], p, &a.v[ch], a.vPos)
+					synthWindow(&a.u, &a.d, &a.v[ch], a.vPos)
 
-					// Build U, windowing, calculate output
-					for i := range a.u {
-						a.u[i] = 0
-					}
-
-					dIndex := 512 - (a.vPos >> 1)
-					vIndex := (a.vPos % 128) >> 1
-					for vIndex < 1024 {
-						for i := 0; i < 32; i++ {
-							a.u[i] += a.d[dIndex] * a.v[ch][vIndex]
-							dIndex++
-							vIndex++
+					// Format is constant per frame; branch once, not per sample.
+					switch a.format {
+					case AudioF32N:
+						for j := 0; j < 32; j++ {
+							a.samples.Interleaved[((outPos+j)<<1)+ch] = a.u[j] / -1090519040.0
 						}
-
-						vIndex += 128 - 32
-						dIndex += 64 - 32
-					}
-
-					dIndex -= 512 - 32
-					vIndex = (128 - 32 + 1024) - vIndex
-					for vIndex < 1024 {
-						for i := 0; i < 32; i++ {
-							a.u[i] += a.d[dIndex] * a.v[ch][vIndex]
-							dIndex++
-							vIndex++
+					case AudioF32NLR:
+						out := a.samples.Left
+						if ch != 0 {
+							out = a.samples.Right
 						}
-
-						vIndex += 128 - 32
-						dIndex += 64 - 32
-					}
-
-					// Output samples
-					var out []float32
-					if ch == 0 {
-						out = a.samples.Left
-					} else {
-						out = a.samples.Right
-					}
-
-					for j := 0; j < 32; j++ {
-						s := a.u[j] / -1090519040.0
-
-						switch a.format {
-						case AudioF32N:
-							a.samples.Interleaved[((outPos+j)<<1)+ch] = s
-						case AudioF32NLR:
-							out[outPos+j] = s
-						case AudioS16:
+						for j := 0; j < 32; j++ {
+							out[outPos+j] = a.u[j] / -1090519040.0
+						}
+					case AudioS16:
+						for j := 0; j < 32; j++ {
+							s := a.u[j] / -1090519040.0
 							if s < 0 {
 								a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x8000)
 							} else {
 								a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x7FFF)
 							}
-						case AudioF32:
+						}
+					case AudioF32:
+						for j := 0; j < 32; j++ {
+							s := a.u[j] / -1090519040.0
 							if s < 0 {
 								a.samples.F32[((outPos+j)<<1)+ch] = s * 0x80000000
 							} else {

@@ -3,6 +3,9 @@ package mpeg_test
 import (
 	"bytes"
 	_ "embed"
+	"encoding/binary"
+	"hash/fnv"
+	"math"
 	"testing"
 	"time"
 
@@ -104,6 +107,45 @@ func TestAudio(t *testing.T) {
 
 	if samples == nil {
 		t.Error("Decode: samples is nil")
+	}
+}
+
+// TestAudioGolden decodes the whole test clip and hashes the synthesized
+// samples, guarding the synthesis filter against accidental numeric changes.
+func TestAudioGolden(t *testing.T) {
+	buf, err := mpeg.NewBuffer(bytes.NewReader(testMp2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf.SetLoadCallback(buf.LoadReaderCallback)
+
+	audio := mpeg.NewAudio(buf)
+
+	h := fnv.New64a()
+	var b [4]byte
+	frames := 0
+	for {
+		s := audio.Decode()
+		if s == nil {
+			break
+		}
+		for _, f := range s.Interleaved {
+			binary.LittleEndian.PutUint32(b[:], math.Float32bits(f))
+			h.Write(b[:])
+		}
+		frames++
+	}
+
+	// Output depends on which multiply-adds fuse to FMA, which varies by target;
+	// all correct. Hashes: no FMA (amd64), windowing FMA (amd64 AVX2),
+	// windowing+idct36 FMA (arm64).
+	want := map[uint64]bool{
+		0xf1b76cdf8e6cdea5: true,
+		0x50f3ab75f5fb0fb5: true,
+		0x245c591bb52c83b1: true,
+	}
+	if got := h.Sum64(); !want[got] {
+		t.Fatalf("audio output hash: got %#016x (frames=%d)", got, frames)
 	}
 }
 
