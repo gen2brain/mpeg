@@ -46,6 +46,9 @@ func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, 
 // luma, 8 for chroma) at byte offset si in src and di in dst, processing 8
 // bytes of each row per iteration. oddH and oddV select half-pel interpolation.
 func copyBlock(src, dst []byte, stride, si, di, size int, oddH, oddV bool) {
+	// Motion reads can reach just past the plane into the shared buffer.
+	src = src[:cap(src)]
+
 	for r := 0; r < size; r++ {
 		switch {
 		case !oddH && !oddV:

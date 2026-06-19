@@ -335,22 +335,24 @@ func (v *Video) initFrame(frame *Frame) {
 	chromaSize := v.chromaWidth * v.chromaHeight
 	frameSize := lumaSize + 2*chromaSize
 
-	base := make([]byte, frameSize)
+	// Planes share one padded buffer; each plane's cap spans the rest of it so
+	// half-pel motion reads just past a plane edge stay in bounds.
+	base := make([]byte, frameSize+v.lumaWidth*16)
 
 	frame.Width = v.width
 	frame.Height = v.height
 
 	frame.Y.Width = v.lumaWidth
 	frame.Y.Height = v.lumaHeight
-	frame.Y.Data = base[0:lumaSize:lumaSize]
+	frame.Y.Data = base[0:lumaSize]
 
 	frame.Cb.Width = v.chromaWidth
 	frame.Cb.Height = v.chromaHeight
-	frame.Cb.Data = base[lumaSize : lumaSize+chromaSize : lumaSize+chromaSize]
+	frame.Cb.Data = base[lumaSize : lumaSize+chromaSize]
 
 	frame.Cr.Width = v.chromaWidth
 	frame.Cr.Height = v.chromaHeight
-	frame.Cr.Data = base[lumaSize+chromaSize : frameSize : frameSize]
+	frame.Cr.Data = base[lumaSize+chromaSize : frameSize]
 
 	frame.imYCbCr = image.YCbCr{
 		Y:              frame.Y.Data,
