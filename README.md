@@ -19,7 +19,7 @@ Decoding costs very little CPU time compared to modern video formats. All patent
 - [player-sdl](https://github.com/gen2brain/mpeg-examples/blob/main/player-sdl) - player using `SDL2` with accelerated YUV->RGB conversion
 - [player-sdl3](https://github.com/gen2brain/mpeg-examples/blob/main/player-sdl3) - player using `SDL3` with accelerated YUV->RGB conversion
 - [player-web](https://github.com/gen2brain/mpeg-examples/blob/main/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
-- [player-xv](https://github.com/gen2brain/mpeg-examples/blob/main/player-xv) - player using `X11/XVideo` and `OSS`, accelerated
+- [player-xv](https://github.com/gen2brain/mpeg-examples/blob/main/player-xv) - player using `X11/XVideo` and `ALSA`, accelerated
 
 ### Format
 
@@ -36,7 +36,7 @@ ffmpeg -i input.mp4 -c:v mpeg1video -q:v 0 -c:a mp2 -format mpeg output.mpg
 You can use `-b:v` to set a fixed bitrate instead; e.g. `-b:v 2000k` for 2000 kbit/s.
 Refer to the [FFmpeg documentation](https://ffmpeg.org/ffmpeg.html#Options) for more details.
 
-If you have FFmpeg compiled with `libtwolame` (an optimised MP2 encoder), you can use `-c:a libtwolame -b:a 224k` instead of `-c:a mp2`.
+If you have FFmpeg compiled with `libtwolame` (an optimized MP2 encoder), you can use `-c:a libtwolame -b:a 224k` instead of `-c:a mp2`.
 
 If you just want to test the library quickly, try this file:
 [https://gen2brain.github.io/mpeg/sintel.mpg](https://gen2brain.github.io/mpeg/sintel.mpg)
