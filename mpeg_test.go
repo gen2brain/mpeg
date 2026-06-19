@@ -332,9 +332,13 @@ func TestMpeg(t *testing.T) {
 		t.Fatal("SeekFrame: frame is nil")
 	}
 
+	// Seeking past the end clamps to the duration and returns the last frame.
 	frame = mpg.SeekFrame(100*time.Second, true)
-	if frame != nil {
-		t.Fatal("SeekFrame: expected nil frame")
+	if frame == nil {
+		t.Fatal("SeekFrame: frame is nil")
+	}
+	if frame.Time < mpg.Duration().Seconds()-1.0 {
+		t.Errorf("SeekFrame: got time %f, want near duration %f", frame.Time, mpg.Duration().Seconds())
 	}
 
 	mpg.SetAudioCallback(func(m *mpeg.MPEG, s *mpeg.Samples) {})

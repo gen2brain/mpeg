@@ -187,7 +187,7 @@ func (v *Video) Time() float64 {
 // SetTime sets the current internal time in seconds. This is only useful when you
 // manipulate the underlying video buffer and want to enforce a correct timestamps.
 func (v *Video) SetTime(time float64) {
-	v.framesDecoded = int(v.frameRate * v.time)
+	v.framesDecoded = int(v.frameRate * time)
 	v.time = time
 }
 
