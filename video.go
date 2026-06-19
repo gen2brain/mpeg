@@ -771,7 +771,7 @@ func (v *Video) decodeBlock(block int) {
 		// Overwrite (no prediction)
 		if n == 1 {
 			value := (v.blockData[0] + 128) >> 8
-			copyValueToDest(clamp(value), d, di, scan)
+			copyValueToDest(value, d, di, scan)
 			v.blockData[0] = 0
 		} else {
 			idct(&v.blockData, n)
@@ -784,7 +784,7 @@ func (v *Video) decodeBlock(block int) {
 		// Add data to the predicted macroblock
 		if n == 1 {
 			value := (v.blockData[0] + 128) >> 8
-			addValueToDest(byte(value), d, di, scan)
+			addValueToDest(value, d, di, scan)
 			v.blockData[0] = 0
 		} else {
 			idct(&v.blockData, n)
@@ -968,7 +968,7 @@ func addBlockToDest(block *[64]int, dest []byte, index, scan int) {
 	}
 }
 
-func copyValueToDest(value byte, dest []byte, index, scan int) {
+func copyValueToDest(value int, dest []byte, index, scan int) {
 	val := clamp(value)
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = val
@@ -984,16 +984,16 @@ func copyValueToDest(value byte, dest []byte, index, scan int) {
 	}
 }
 
-func addValueToDest(value byte, dest []byte, index, scan int) {
+func addValueToDest(value int, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
-		dest[index+0] = clamp(dest[index+0] + value)
-		dest[index+1] = clamp(dest[index+1] + value)
-		dest[index+2] = clamp(dest[index+2] + value)
-		dest[index+3] = clamp(dest[index+3] + value)
-		dest[index+4] = clamp(dest[index+4] + value)
-		dest[index+5] = clamp(dest[index+5] + value)
-		dest[index+6] = clamp(dest[index+6] + value)
-		dest[index+7] = clamp(dest[index+7] + value)
+		dest[index+0] = clamp(int(dest[index+0]) + value)
+		dest[index+1] = clamp(int(dest[index+1]) + value)
+		dest[index+2] = clamp(int(dest[index+2]) + value)
+		dest[index+3] = clamp(int(dest[index+3]) + value)
+		dest[index+4] = clamp(int(dest[index+4]) + value)
+		dest[index+5] = clamp(int(dest[index+5]) + value)
+		dest[index+6] = clamp(int(dest[index+6]) + value)
+		dest[index+7] = clamp(int(dest[index+7]) + value)
 
 		index += scan + 8
 	}
