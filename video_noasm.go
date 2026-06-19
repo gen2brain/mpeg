@@ -2,269 +2,76 @@
 
 package mpeg
 
-import "unsafe"
+import "encoding/binary"
+
+// SWAR (SIMD-within-a-register) constants for processing 8 packed bytes at a time.
+const (
+	loByteMask = 0x00ff00ff00ff00ff // selects the even byte of each 16-bit lane
+	avgMask    = 0x7f7f7f7f7f7f7f7f // clears the carry bit of each byte after >>1
+	twoPerLane = 0x0002000200020002 // rounding bias for the bilinear average
+)
+
+// roundAvg returns the per-byte rounding average (a+b+1)>>1 of 8 packed bytes.
+func roundAvg(a, b uint64) uint64 {
+	return (a | b) - (((a ^ b) >> 1) & avgMask)
+}
+
+// bilinAvg returns the per-byte bilinear average (a+b+c+d+2)>>2 of 8 packed
+// bytes. The bytes are spread into 16-bit lanes so the four-way sum cannot
+// overflow, then narrowed back.
+func bilinAvg(a, b, c, d uint64) uint64 {
+	lo := ((a & loByteMask) + (b & loByteMask) + (c & loByteMask) + (d & loByteMask) + twoPerLane) >> 2 & loByteMask
+	hi := (((a >> 8) & loByteMask) + ((b >> 8) & loByteMask) + ((c >> 8) & loByteMask) + ((d >> 8) & loByteMask) + twoPerLane) >> 2 & loByteMask
+	return lo | hi<<8
+}
 
 func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) {
-	// We use 32bit writes here
-	dY := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Y.Data[0])), len(d.Y.Data)/4)
-	dCb := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Cb.Data[0])), len(d.Cb.Data)/4)
-	dCr := unsafe.Slice((*uint32)(unsafe.Pointer(&d.Cr.Data[0])), len(d.Cr.Data)/4)
-
-	// Luminance
-	width := lumaWidth
-	scan := width - 16
-
 	hp := motionH >> 1
 	vp := motionV >> 1
-	oddH := (motionH & 1) == 1
-	oddV := (motionV & 1) == 1
+	lsi := ((mbRow<<4)+vp)*lumaWidth + (mbCol << 4) + hp
+	ldi := (mbRow<<4)*lumaWidth + (mbCol << 4)
+	copyBlock(s.Y.Data, d.Y.Data, lumaWidth, lsi, ldi, 16, motionH&1 == 1, motionV&1 == 1)
 
-	si := ((mbRow<<4)+vp)*width + (mbCol << 4) + hp
-	di := (mbRow*width + mbCol) << 2
-	last := di + (width << 2)
+	cmH := motionH / 2
+	cmV := motionV / 2
+	hp = cmH >> 1
+	vp = cmV >> 1
+	csi := ((mbRow<<3)+vp)*chromaWidth + (mbCol << 3) + hp
+	cdi := (mbRow<<3)*chromaWidth + (mbCol << 3)
+	copyBlock(s.Cb.Data, d.Cb.Data, chromaWidth, csi, cdi, 8, cmH&1 == 1, cmV&1 == 1)
+	copyBlock(s.Cr.Data, d.Cr.Data, chromaWidth, csi, cdi, 8, cmH&1 == 1, cmV&1 == 1)
+}
 
-	var y1, y2, y uint64
-
-	if oddH {
-		if oddV {
-			for di < last {
-				y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-				si++
-
-				for x := 0; x < 4; x++ {
-					y2 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y = ((y1 + y2 + 2) >> 2) & 0xff
-
-					y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 6) & 0xff00
-
-					y2 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 14) & 0xff0000
-
-					y1 = uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width])
-					si++
-					y |= ((y1 + y2 + 2) << 22) & 0xff000000
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
+// copyBlock performs motion compensation for a single size×size block (16 for
+// luma, 8 for chroma) at byte offset si in src and di in dst, processing 8
+// bytes of each row per iteration. oddH and oddV select half-pel interpolation.
+func copyBlock(src, dst []byte, stride, si, di, size int, oddH, oddV bool) {
+	for r := 0; r < size; r++ {
+		switch {
+		case !oddH && !oddV:
+			copy(dst[di:di+size], src[si:si+size])
+		case oddH && !oddV:
+			for x := 0; x < size; x += 8 {
+				a := binary.LittleEndian.Uint64(src[si+x:])
+				b := binary.LittleEndian.Uint64(src[si+x+1:])
+				binary.LittleEndian.PutUint64(dst[di+x:], roundAvg(a, b))
 			}
-		} else {
-			for di < last {
-				y1 = uint64(s.Y.Data[si])
-				si++
-				for x := 0; x < 4; x++ {
-					y2 = uint64(s.Y.Data[si])
-					si++
-					y = ((y1 + y2 + 1) >> 1) & 0xff
-
-					y1 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 7) & 0xff00
-
-					y2 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 15) & 0xff0000
-
-					y1 = uint64(s.Y.Data[si])
-					si++
-					y |= ((y1 + y2 + 1) << 23) & 0xff000000
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
+		case !oddH && oddV:
+			for x := 0; x < size; x += 8 {
+				a := binary.LittleEndian.Uint64(src[si+x:])
+				b := binary.LittleEndian.Uint64(src[si+x+stride:])
+				binary.LittleEndian.PutUint64(dst[di+x:], roundAvg(a, b))
+			}
+		default:
+			for x := 0; x < size; x += 8 {
+				a := binary.LittleEndian.Uint64(src[si+x:])
+				b := binary.LittleEndian.Uint64(src[si+x+1:])
+				c := binary.LittleEndian.Uint64(src[si+x+stride:])
+				e := binary.LittleEndian.Uint64(src[si+x+stride+1:])
+				binary.LittleEndian.PutUint64(dst[di+x:], bilinAvg(a, b, c, e))
 			}
 		}
-	} else {
-		if oddV {
-			for di < last {
-				for x := 0; x < 4; x++ {
-					y = ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) >> 1) & 0xff
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 7) & 0xff00
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 15) & 0xff0000
-					si++
-					y |= ((uint64(s.Y.Data[si]) + uint64(s.Y.Data[si+width]) + 1) << 23) & 0xff000000
-					si++
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		} else {
-			for di < last {
-				for x := 0; x < 4; x++ {
-					y = uint64(s.Y.Data[si])
-					si++
-					y |= uint64(s.Y.Data[si]) << 8
-					si++
-					y |= uint64(s.Y.Data[si]) << 16
-					si++
-					y |= uint64(s.Y.Data[si]) << 24
-					si++
-
-					dY[di] = uint32(y)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		}
-	}
-
-	// Chrominance
-	width = chromaWidth
-	scan = width - 8
-
-	hp = (motionH / 2) >> 1
-	vp = (motionV / 2) >> 1
-	oddH = ((motionH / 2) & 1) == 1
-	oddV = ((motionV / 2) & 1) == 1
-
-	si = ((mbRow<<3)+vp)*width + (mbCol << 3) + hp
-	di = (mbRow*width + mbCol) << 1
-	last = di + (width << 1)
-
-	var cb1, cb2, cb, cr1, cr2, cr uint64
-	if oddH {
-		if oddV {
-			for di < last {
-				cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-				cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-				si++
-				for x := 0; x < 2; x++ {
-					cr2 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb2 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr = ((cr1 + cr2 + 2) >> 2) & 0xff
-					cb = ((cb1 + cb2 + 2) >> 2) & 0xff
-
-					cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 6) & 0xff00
-					cb |= ((cb1 + cb2 + 2) << 6) & 0xff00
-
-					cr2 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb2 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 14) & 0xff0000
-					cb |= ((cb1 + cb2 + 2) << 14) & 0xff0000
-
-					cr1 = uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width])
-					cb1 = uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width])
-					si++
-					cr |= ((cr1 + cr2 + 2) << 22) & 0xff000000
-					cb |= ((cb1 + cb2 + 2) << 22) & 0xff000000
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		} else {
-			for di < last {
-				cr1 = uint64(s.Cr.Data[si])
-				cb1 = uint64(s.Cb.Data[si])
-				si++
-				for x := 0; x < 2; x++ {
-					cr2 = uint64(s.Cr.Data[si])
-					cb2 = uint64(s.Cb.Data[si])
-					si++
-					cr = ((cr1 + cr2 + 1) >> 1) & 0xff
-					cb = ((cb1 + cb2 + 1) >> 1) & 0xff
-
-					cr1 = uint64(s.Cr.Data[si])
-					cb1 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 7) & 0xff00
-					cb |= ((cb1 + cb2 + 1) << 7) & 0xff00
-
-					cr2 = uint64(s.Cr.Data[si])
-					cb2 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 15) & 0xff0000
-					cb |= ((cb1 + cb2 + 1) << 15) & 0xff0000
-
-					cr1 = uint64(s.Cr.Data[si])
-					cb1 = uint64(s.Cb.Data[si])
-					si++
-					cr |= ((cr1 + cr2 + 1) << 23) & 0xff000000
-					cb |= ((cb1 + cb2 + 1) << 23) & 0xff000000
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan - 1
-			}
-		}
-	} else {
-		if oddV {
-			for di < last {
-				for x := 0; x < 2; x++ {
-					cr = ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) >> 1) & 0xff
-					cb = ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) >> 1) & 0xff
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 7) & 0xff00
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 7) & 0xff00
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 15) & 0xff0000
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 15) & 0xff0000
-					si++
-
-					cr |= ((uint64(s.Cr.Data[si]) + uint64(s.Cr.Data[si+width]) + 1) << 23) & 0xff000000
-					cb |= ((uint64(s.Cb.Data[si]) + uint64(s.Cb.Data[si+width]) + 1) << 23) & 0xff000000
-					si++
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		} else {
-			for di < last {
-				for x := 0; x < 2; x++ {
-					cr = uint64(s.Cr.Data[si])
-					cb = uint64(s.Cb.Data[si])
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 8
-					cb |= uint64(s.Cb.Data[si]) << 8
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 16
-					cb |= uint64(s.Cb.Data[si]) << 16
-					si++
-
-					cr |= uint64(s.Cr.Data[si]) << 24
-					cb |= uint64(s.Cb.Data[si]) << 24
-					si++
-
-					dCr[di] = uint32(cr)
-					dCb[di] = uint32(cb)
-					di++
-				}
-				di += scan >> 2
-				si += scan
-			}
-		}
+		si += stride
+		di += stride
 	}
 }
