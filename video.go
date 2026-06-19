@@ -636,7 +636,7 @@ func (v *Video) predictMacroblock() {
 
 func (v *Video) decodeBlock(block int) {
 	var n int
-	var quantMatrix [64]byte
+	var quantMatrix *[64]byte
 
 	// Decode DC coefficient of intra-coded blocks
 	if v.macroblockIntra {
@@ -669,10 +669,10 @@ func (v *Video) decodeBlock(block int) {
 		// Dequantize + premultiply
 		v.blockData[0] <<= 3 + 5
 
-		quantMatrix = v.intraQuantMatrix
+		quantMatrix = &v.intraQuantMatrix
 		n = 1
 	} else {
-		quantMatrix = v.nonIntraQuantMatrix
+		quantMatrix = &v.nonIntraQuantMatrix
 	}
 
 	// Decode AC coefficients (+DC for non-intra)
@@ -711,7 +711,7 @@ func (v *Video) decodeBlock(block int) {
 			return // invalid
 		}
 
-		deZigZagged := videoZigZag[n]
+		deZigZagged := int(videoZigZag[n]) & 63
 		n++
 
 		// Dequantize, oddify, clip
@@ -775,7 +775,7 @@ func (v *Video) decodeBlock(block int) {
 			v.blockData[0] = 0
 		} else {
 			idct(&v.blockData, n)
-			copyBlockToDest(v.blockData, d, di, scan)
+			copyBlockToDest(&v.blockData, d, di, scan)
 			for i := 0; i < 64; i++ {
 				v.blockData[i] = 0
 			}
@@ -788,7 +788,7 @@ func (v *Video) decodeBlock(block int) {
 			v.blockData[0] = 0
 		} else {
 			idct(&v.blockData, n)
-			addBlockToDest(v.blockData, d, di, scan)
+			addBlockToDest(&v.blockData, d, di, scan)
 			for i := 0; i < 64; i++ {
 				v.blockData[i] = 0
 			}
@@ -938,7 +938,7 @@ const (
 	startExtension  = 0xB5
 )
 
-func copyBlockToDest(block [64]int, dest []byte, index, scan int) {
+func copyBlockToDest(block *[64]int, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = clamp(block[n+0])
 		dest[index+1] = clamp(block[n+1])
@@ -953,7 +953,7 @@ func copyBlockToDest(block [64]int, dest []byte, index, scan int) {
 	}
 }
 
-func addBlockToDest(block [64]int, dest []byte, index, scan int) {
+func addBlockToDest(block *[64]int, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = clamp(int(dest[index+0]) + block[n+0])
 		dest[index+1] = clamp(int(dest[index+1]) + block[n+1])
@@ -1039,7 +1039,7 @@ var videoAspectRatio = []float64{
 	0.9375, 0.9815, 1.0255, 1.0695, 1.1250, 1.1575, 1.2015, 0.0000,
 }
 
-var videoZigZag = []byte{
+var videoZigZag = [64]byte{
 	0, 1, 8, 16, 9, 2, 3, 10,
 	17, 24, 32, 25, 18, 11, 4, 5,
 	12, 19, 26, 33, 40, 48, 41, 34,
@@ -1072,7 +1072,7 @@ var videoNonIntraQuantMatrix = []byte{
 	16, 16, 16, 16, 16, 16, 16, 16,
 }
 
-var videoPremultiplierMatrix = []byte{
+var videoPremultiplierMatrix = [64]byte{
 	32, 44, 42, 38, 32, 25, 17, 9,
 	44, 62, 58, 52, 44, 35, 24, 12,
 	42, 58, 55, 49, 42, 33, 23, 12,
