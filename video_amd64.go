@@ -2,14 +2,6 @@
 
 package mpeg
 
-var isAVX2 bool
-
-func init() {
-	isAVX2 = hasAVX2()
-}
-
-func hasAVX2() bool
-
 //go:noescape
 func copyMacroblockSSE2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
 
