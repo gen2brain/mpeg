@@ -149,6 +149,36 @@ func TestAudioGolden(t *testing.T) {
 	}
 }
 
+// TestVideoGolden hashes every decoded plane to guard the integer decode path
+// (dequant, IDCT, motion compensation). The output is identical on all backends.
+func TestVideoGolden(t *testing.T) {
+	buf, err := mpeg.NewBuffer(bytes.NewReader(testMpeg1video))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf.SetLoadCallback(buf.LoadReaderCallback)
+
+	video := mpeg.NewVideo(buf)
+
+	h := fnv.New64a()
+	frames := 0
+	for {
+		frame := video.Decode()
+		if frame == nil {
+			break
+		}
+		h.Write(frame.Y.Data)
+		h.Write(frame.Cb.Data)
+		h.Write(frame.Cr.Data)
+		frames++
+	}
+
+	const want uint64 = 0xea6d7fcb1340ba3f
+	if got := h.Sum64(); got != want {
+		t.Fatalf("video output hash: got %#016x want %#016x (frames=%d)", got, want, frames)
+	}
+}
+
 func TestVideo(t *testing.T) {
 	buf, err := mpeg.NewBuffer(bytes.NewReader(testMpeg1video))
 	if err != nil {
