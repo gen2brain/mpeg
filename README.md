@@ -20,6 +20,7 @@ Decoding costs very little CPU time compared to modern video formats. All patent
 - [player-sdl3](https://github.com/gen2brain/mpeg-examples/blob/main/player-sdl3) - player using `SDL3` with accelerated YUV->RGB conversion
 - [player-web](https://github.com/gen2brain/mpeg-examples/blob/main/player-web) - player using `WebGL` and `WebAudio`, see [live example](https://gen2brain.github.io/mpeg)
 - [player-xv](https://github.com/gen2brain/mpeg-examples/blob/main/player-xv) - player using `X11/XVideo` and `ALSA`, accelerated
+- [player-wl](https://github.com/gen2brain/mpeg-examples/blob/main/player-wl) - player using `Wayland` and `ALSA`, YUV->RGB on CPU, GPU scaling/compositing
 
 ### Format
 
