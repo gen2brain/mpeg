@@ -346,6 +346,69 @@ func TestMpeg(t *testing.T) {
 	mpg.Decode(1 * time.Second)
 }
 
+// TestSeekAudioTime checks that an exact seek off a frame boundary (3001ms)
+// does not leave Audio().Time() out of sync with the stream.
+func TestSeekAudioTime(t *testing.T) {
+	newMpeg := func() *mpeg.MPEG {
+		m, err := mpeg.New(bytes.NewReader(testMpg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.SetAudioCallback(func(_ *mpeg.MPEG, _ *mpeg.Samples) {})
+		m.SetVideoCallback(func(_ *mpeg.MPEG, _ *mpeg.Frame) {})
+		return m
+	}
+
+	// Audio time must stay within one audio packet of the stream time.
+	const tolerance = 0.5
+
+	var times []float64
+	for _, ms := range []int{1000, 2000, 3000, 3001, 4000, 5000} {
+		m := newMpeg()
+		if !m.Seek(time.Duration(ms)*time.Millisecond, true) {
+			t.Fatalf("seek to %dms returned false", ms)
+		}
+
+		streamTime := m.Time().Seconds()
+		audioTime := m.Audio().Time()
+
+		if math.Abs(audioTime-streamTime) > tolerance {
+			t.Errorf("seek to %dms: audio time %.4f too far from stream time %.4f",
+				ms, audioTime, streamTime)
+		}
+
+		times = append(times, audioTime)
+	}
+
+	// A 1ms change (3000ms vs 3001ms) must not jump the audio time.
+	if d := math.Abs(times[3] - times[2]); d > tolerance {
+		t.Errorf("audio time jumped by %.4f between 3000ms and 3001ms seeks", d)
+	}
+}
+
+// TestSeekVideoCallbackOnce checks that Seek() fires the video callback exactly
+// once, for both exact and non-exact seeks.
+func TestSeekVideoCallbackOnce(t *testing.T) {
+	for _, exact := range []bool{false, true} {
+		m, err := mpeg.New(bytes.NewReader(testMpg))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		count := 0
+		m.SetVideoCallback(func(_ *mpeg.MPEG, _ *mpeg.Frame) { count++ })
+		m.SetAudioCallback(func(_ *mpeg.MPEG, _ *mpeg.Samples) {})
+
+		if !m.Seek(3*time.Second, exact) {
+			t.Fatalf("seek (exact=%v) returned false", exact)
+		}
+
+		if count != 1 {
+			t.Errorf("seek (exact=%v): video callback fired %d times, want 1", exact, count)
+		}
+	}
+}
+
 func BenchmarkDecodeVideo(b *testing.B) {
 	mpg, err := mpeg.New(bytes.NewReader(testMpg))
 	if err != nil {
