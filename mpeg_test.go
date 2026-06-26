@@ -81,6 +81,57 @@ func TestDemux(t *testing.T) {
 	}
 }
 
+// TestDemuxStartTimeDuration checks that StartTime and Duration are reported
+// per packet type, return the lowest/highest PTS (not just the first/last
+// packet, which can be reordered), and that Duration includes the final frame.
+func TestDemuxStartTimeDuration(t *testing.T) {
+	newDemux := func() *mpeg.Demux {
+		buf, err := mpeg.NewBuffer(bytes.NewReader(testMpg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf.SetLoadCallback(buf.LoadReaderCallback)
+		d, err := mpeg.NewDemux(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+
+	const (
+		videoStart    = 0.810078
+		audioStart    = 0.810078
+		videoDur      = 9.233333
+		audioDur      = 9.325711
+		firstVideoPts = 0.876744 // higher than the start: a later reordered packet has the lowest PTS
+		eps           = 0.001
+	)
+
+	near := func(name string, got, want float64) {
+		if math.Abs(got-want) > eps {
+			t.Errorf("%s: got %.6f, want %.6f", name, got, want)
+		}
+	}
+
+	// Values must not depend on query order (the cache is keyed by type).
+	vFirst := newDemux()
+	near("video StartTime", vFirst.StartTime(mpeg.PacketVideo1), videoStart)
+	near("video Duration", vFirst.Duration(mpeg.PacketVideo1), videoDur)
+	near("audio StartTime after video", vFirst.StartTime(mpeg.PacketAudio1), audioStart)
+	near("audio Duration after video", vFirst.Duration(mpeg.PacketAudio1), audioDur)
+
+	aFirst := newDemux()
+	near("audio StartTime", aFirst.StartTime(mpeg.PacketAudio1), audioStart)
+	near("audio Duration", aFirst.Duration(mpeg.PacketAudio1), audioDur)
+	near("video StartTime after audio", aFirst.StartTime(mpeg.PacketVideo1), videoStart)
+	near("video Duration after audio", aFirst.Duration(mpeg.PacketVideo1), videoDur)
+
+	// The start must be the lowest PTS, below the first packet decoded.
+	if s := newDemux().StartTime(mpeg.PacketVideo1); s >= firstVideoPts {
+		t.Errorf("video StartTime %.6f did not look past the first packet (%.6f)", s, firstVideoPts)
+	}
+}
+
 func TestAudio(t *testing.T) {
 	buf, err := mpeg.NewBuffer(bytes.NewReader(testMp2))
 	if err != nil {

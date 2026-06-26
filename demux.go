@@ -2,6 +2,7 @@ package mpeg
 
 import (
 	"errors"
+	"sort"
 )
 
 // Packet is demuxed MPEG PS packet.
@@ -37,8 +38,12 @@ type Demux struct {
 	sysClockRef    float64
 	lastFileSize   int
 	lastDecodedPts float64
-	startTime      float64
-	duration       float64
+	startTime      map[int]float64
+	duration       map[int]float64
+
+	// Raw first/last PTS per type, reference points for the Seek estimator.
+	firstPts map[int]float64
+	lastPts  map[int]float64
 
 	startCode       int
 	hasPackHeader   bool
@@ -57,8 +62,10 @@ func NewDemux(buf *Buffer) (*Demux, error) {
 	dmux := &Demux{}
 
 	dmux.buf = buf
-	dmux.startTime = PacketInvalidTS
-	dmux.duration = PacketInvalidTS
+	dmux.startTime = make(map[int]float64)
+	dmux.duration = make(map[int]float64)
+	dmux.firstPts = make(map[int]float64)
+	dmux.lastPts = make(map[int]float64)
 	dmux.startCode = -1
 
 	if !dmux.HasHeaders() {
@@ -226,19 +233,23 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 	// probably something wrong with the file, and we just avoid getting into an
 	// infinite loop. 32 retries should be enough for anybody.
 
-	duration := d.Duration(typ)
+	// Anchor on the raw PTS span, not the corrected StartTime/Duration, so the search is unchanged.
+	d.Duration(typ)
+	startPts := d.firstPts[typ]
+	span := d.lastPts[typ] - startPts
+
 	fileSize := d.buf.Size()
-	byteRate := float64(fileSize) / duration
+	byteRate := float64(fileSize) / span
 
 	curTime := d.lastDecodedPts
 	scanSpan := float64(1)
 
-	if seekTime > duration {
-		seekTime = duration
+	if seekTime > span {
+		seekTime = span
 	} else if seekTime < 0 {
 		seekTime = 0
 	}
-	seekTime += d.startTime
+	seekTime += startPts
 
 	for retry := 0; retry < 32; retry++ {
 		foundPacketWithPts := false
@@ -329,25 +340,30 @@ func (d *Demux) Seek(seekTime float64, typ int, forceIntra bool) *Packet {
 		case !foundPacketWithPts:
 			// If we didn't find any packet with a PTS, it probably means we reached
 			// the end of the file. Estimate byteRate and curTime accordingly.
-			byteRate = float64(seekPos-curPos) / (duration - curTime)
-			curTime = duration
+			byteRate = float64(seekPos-curPos) / (span - curTime)
+			curTime = span
 		}
 	}
 
 	return nil
 }
 
-// StartTime gets the PTS of the first packet of this type.
-// Returns PacketInvalidTS if packet of this packet type can not be found.
+// reorderWindow is how far past the first PTS to scan for reordered (B-frame) packets.
+const reorderWindow = 1.0
+
+// StartTime gets the lowest PTS of all packets of this type.
+// Returns PacketInvalidTS if a packet of this type can not be found.
 func (d *Demux) StartTime(typ int) float64 {
-	if d.startTime != PacketInvalidTS {
-		return d.startTime
+	if t, ok := d.startTime[typ]; ok {
+		return t
 	}
 
 	prevPos := d.buf.tell()
 	prevStartCode := d.startCode
 
-	// Find first video PTS
+	startTime := float64(PacketInvalidTS)
+	anchor := float64(PacketInvalidTS)
+
 	d.Rewind()
 	for {
 		packet := d.Decode()
@@ -355,33 +371,46 @@ func (d *Demux) StartTime(typ int) float64 {
 			break
 		}
 
-		if packet.Type == typ {
-			d.startTime = packet.Pts
+		if packet.Type != typ || packet.Pts == PacketInvalidTS {
+			continue
 		}
 
-		if d.startTime != PacketInvalidTS {
-			break
+		if anchor == PacketInvalidTS {
+			anchor = packet.Pts
+			startTime = packet.Pts
+		} else {
+			if packet.Pts < startTime {
+				startTime = packet.Pts
+			}
+			if packet.Pts >= anchor+reorderWindow {
+				break
+			}
 		}
 	}
 
 	d.bufferSeek(prevPos)
 	d.startCode = prevStartCode
 
-	return d.startTime
+	if startTime != PacketInvalidTS {
+		d.startTime[typ] = startTime
+		d.firstPts[typ] = anchor
+	}
+
+	return startTime
 }
 
-// Duration gets the duration for the specified packet type - i.e. the span between
-// the first PTS and the last PTS in the data source.
+// Duration gets the duration for the specified packet type - the highest PTS
+// minus the lowest PTS, plus the length of the final frame.
 func (d *Demux) Duration(typ int) float64 {
 	fileSize := d.buf.Size()
-	if d.duration != PacketInvalidTS && d.lastFileSize == fileSize {
-		return d.duration
+	if t, ok := d.duration[typ]; ok && d.lastFileSize == fileSize {
+		return t
 	}
 
 	prevPos := d.buf.tell()
 	prevStartCode := d.startCode
 
-	// Find last video PTS. Start searching 64kb from the end and go further back if needed.
+	// Find the highest PTS. Start searching 64kb from the end and go further back if needed.
 	startRange := 64 * 1024
 	maxRange := 4096 * 1024
 
@@ -394,7 +423,7 @@ func (d *Demux) Duration(typ int) float64 {
 		d.bufferSeek(seekPos)
 		d.currentPacket.length = 0
 
-		lastPts := float64(PacketInvalidTS)
+		var ptsList []float64
 		for {
 			packet := d.Decode()
 			if packet == nil {
@@ -402,12 +431,15 @@ func (d *Demux) Duration(typ int) float64 {
 			}
 
 			if packet.Pts != PacketInvalidTS && packet.Type == typ {
-				lastPts = packet.Pts
+				ptsList = append(ptsList, packet.Pts)
 			}
 		}
 
-		if lastPts != PacketInvalidTS {
-			d.duration = lastPts - d.StartTime(typ)
+		if len(ptsList) > 0 {
+			sort.Float64s(ptsList)
+			lastPts := ptsList[len(ptsList)-1]
+			d.lastPts[typ] = lastPts
+			d.duration[typ] = lastPts - d.StartTime(typ) + frameStep(ptsList)
 
 			break
 		}
@@ -417,7 +449,24 @@ func (d *Demux) Duration(typ int) float64 {
 	d.startCode = prevStartCode
 	d.lastFileSize = fileSize
 
-	return d.duration
+	return d.duration[typ]
+}
+
+// frameStep returns one frame's length: the smallest positive gap between sorted timestamps.
+func frameStep(sorted []float64) float64 {
+	step := float64(PacketInvalidTS)
+	for i := 1; i < len(sorted); i++ {
+		gap := sorted[i] - sorted[i-1]
+		if gap > 0 && (step == PacketInvalidTS || gap < step) {
+			step = gap
+		}
+	}
+
+	if step == PacketInvalidTS {
+		return 0
+	}
+
+	return step
 }
 
 // Decode decodes and returns the next packet.
