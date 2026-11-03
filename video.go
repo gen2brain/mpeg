@@ -514,7 +514,7 @@ func (v *Video) decodeMacroblock() {
 	v.mbRow = v.macroblockAddress / v.mbWidth
 	v.mbCol = v.macroblockAddress % v.mbWidth
 
-	if v.mbCol >= v.mbWidth || v.mbRow >= v.mbHeight {
+	if v.macroblockAddress < 0 || v.mbCol >= v.mbWidth || v.mbRow >= v.mbHeight {
 		return // corrupt stream
 	}
 
@@ -603,6 +603,30 @@ func (v *Video) decodeMotionVector(rSize, motion int) int {
 	}
 
 	return motion
+}
+
+// macroblockInBounds reports whether motion compensation stays inside the frame planes.
+func macroblockInBounds(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) bool {
+	if !blockInBounds(s.Y.Data, d.Y.Data, lumaWidth, 16, motionH, motionV, mbRow, mbCol) {
+		return false
+	}
+	cmH := motionH / 2
+	cmV := motionV / 2
+	return blockInBounds(s.Cb.Data, d.Cb.Data, chromaWidth, 8, cmH, cmV, mbRow, mbCol) &&
+		blockInBounds(s.Cr.Data, d.Cr.Data, chromaWidth, 8, cmH, cmV, mbRow, mbCol)
+}
+
+// blockInBounds allows reads into the padding after a plane, but not writes.
+func blockInBounds(src, dst []byte, stride, size, motionH, motionV, mbRow, mbCol int) bool {
+	if mbRow < 0 || mbCol < 0 || mbCol*size+size > stride {
+		return false
+	}
+	di := mbRow*size*stride + mbCol*size
+	if di+(size-1)*stride+size > len(dst) {
+		return false
+	}
+	si := (mbRow*size+(motionV>>1))*stride + mbCol*size + (motionH >> 1)
+	return si >= 0 && si+(size-1+(motionV&1))*stride+size+(motionH&1) <= cap(src)
 }
 
 func (v *Video) predictMacroblock() {

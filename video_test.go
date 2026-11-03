@@ -102,6 +102,114 @@ func runParitySweep(t *testing.T, fn copyMacroblockFunc) {
 	}
 }
 
+// newGuardedFrame returns a frame with each plane surrounded by mark bytes.
+func newGuardedFrame(lumaWidth, chromaWidth, fill int, mark byte) (*Frame, [][]byte) {
+	const guard = 4096
+	f := newTestFrame(lumaWidth, chromaWidth, fill)
+	var backing [][]byte
+	carve := func(p *Plane) {
+		n := len(p.Data)
+		b := make([]byte, guard+n+guard)
+		for i := range b {
+			b[i] = mark
+		}
+		copy(b[guard:], p.Data)
+		p.Data = b[guard : guard+n : guard+n]
+		backing = append(backing, b)
+	}
+	carve(&f.Y)
+	carve(&f.Cb)
+	carve(&f.Cr)
+	return f, backing
+}
+
+func guardsIntact(backing [][]byte, mark byte) bool {
+	const guard = 4096
+	for _, b := range backing {
+		for i := 0; i < guard; i++ {
+			if b[i] != mark || b[len(b)-1-i] != mark {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestCopyMacroblockOutOfBounds(t *testing.T) {
+	const lumaWidth, chromaWidth = 64, 32
+	const mbs = lumaWidth / 16
+
+	cases := []struct {
+		name                           string
+		motionH, motionV, mbRow, mbCol int
+	}{
+		{"negative column", 0, 0, 0, -1},
+		{"negative row", 0, 0, -1, 0},
+		{"column past width", 0, 0, 0, mbs},
+		{"row past height", 0, 0, mbs, 0},
+		{"motion above frame", 0, -2048, 1, 1},
+		{"motion below frame", 0, 2048, 1, 1},
+		{"motion left of frame", -2048, 0, 0, 0},
+		{"motion right of frame", 2048, 0, mbs - 1, mbs - 1},
+		{"half-pel past bottom right", 1, 1, mbs - 1, mbs - 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src, srcBacking := newGuardedFrame(lumaWidth, chromaWidth, 1, 0x5A)
+			dst, dstBacking := newGuardedFrame(lumaWidth, chromaWidth, 0, 0xA5)
+			want := newTestFrame(lumaWidth, chromaWidth, 0)
+
+			copyMacroblock(c.motionH, c.motionV, c.mbRow, c.mbCol, lumaWidth, chromaWidth, src, dst)
+
+			if !guardsIntact(dstBacking, 0xA5) || !guardsIntact(srcBacking, 0x5A) {
+				t.Fatal("memory outside the frame planes was modified")
+			}
+			if string(dst.Y.Data) != string(want.Y.Data) ||
+				string(dst.Cb.Data) != string(want.Cb.Data) ||
+				string(dst.Cr.Data) != string(want.Cr.Data) {
+				t.Fatal("destination modified by an out of bounds macroblock")
+			}
+		})
+	}
+}
+
+// TestCopyMacroblockPaddedEdge checks half-pel reads into the frame padding are allowed.
+func TestCopyMacroblockPaddedEdge(t *testing.T) {
+	const mbWidth, mbHeight = 4, 3
+	v := &Video{
+		width:        mbWidth * 16,
+		height:       mbHeight * 16,
+		lumaWidth:    mbWidth * 16,
+		lumaHeight:   mbHeight * 16,
+		chromaWidth:  mbWidth * 8,
+		chromaHeight: mbHeight * 8,
+	}
+	var src, got, want Frame
+	v.initFrame(&src)
+	v.initFrame(&got)
+	v.initFrame(&want)
+	base := src.Y.Data[:cap(src.Y.Data)]
+	for i := range base {
+		base[i] = byte(i*131 + 7)
+	}
+
+	wide := src
+	wide.Y.Data = src.Y.Data[:cap(src.Y.Data)]
+	wide.Cb.Data = src.Cb.Data[:cap(src.Cb.Data)]
+	wide.Cr.Data = src.Cr.Data[:cap(src.Cr.Data)]
+
+	const motionH, motionV = 3, 3
+	mbRow, mbCol := mbHeight-1, mbWidth-1
+	copyMacroblock(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &src, &got)
+	copyMacroblockRef(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &wide, &want)
+
+	if string(got.Y.Data) != string(want.Y.Data) ||
+		string(got.Cb.Data) != string(want.Cb.Data) ||
+		string(got.Cr.Data) != string(want.Cr.Data) {
+		t.Fatal("bottom right macroblock not predicted from the padded reference")
+	}
+}
+
 func benchmarkCopyMacroblock(b *testing.B, motionH, motionV int) {
 	const lumaWidth, chromaWidth = 64, 32
 	src := newTestFrame(lumaWidth, chromaWidth, 1)

@@ -9,6 +9,9 @@ func copyMacroblockSSE2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth i
 func copyMacroblockAVX2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
 
 func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) {
+	if !macroblockInBounds(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, s, d) {
+		return // corrupt stream
+	}
 	if isAVX2 {
 		copyMacroblockAVX2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, s, d)
 	} else {

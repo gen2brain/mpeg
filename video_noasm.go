@@ -26,6 +26,9 @@ func bilinAvg(a, b, c, d uint64) uint64 {
 }
 
 func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) {
+	if !macroblockInBounds(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, s, d) {
+		return // corrupt stream
+	}
 	hp := motionH >> 1
 	vp := motionV >> 1
 	lsi := ((mbRow<<4)+vp)*lumaWidth + (mbCol << 4) + hp
