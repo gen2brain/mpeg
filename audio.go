@@ -209,7 +209,7 @@ func (a *Audio) decodeHeader() int {
 	}
 
 	bitrateIndex := a.buf.read(4) - 1
-	if bitrateIndex > 13 {
+	if bitrateIndex < 0 || bitrateIndex > 13 {
 		return 0
 	}
 

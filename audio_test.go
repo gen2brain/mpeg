@@ -62,3 +62,17 @@ func runSynthWindowParity(t *testing.T, fn synthWindowFunc, tol float32) {
 		}
 	}
 }
+
+// TestDecodeHeaderFreeFormat checks a header with bitrate index 0 is rejected.
+func TestDecodeHeaderFreeFormat(t *testing.T) {
+	buf, err := NewBuffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// MPEG-1 Layer II, no CRC, bitrate index 0, 44.1 kHz, stereo.
+	buf.Write([]byte{0xFF, 0xFD, 0x00, 0x00, 0x00, 0x00})
+
+	if NewAudio(buf).HasHeader() {
+		t.Fatal("header with bitrate index 0 accepted")
+	}
+}
