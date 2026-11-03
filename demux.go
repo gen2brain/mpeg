@@ -568,6 +568,11 @@ func (d *Demux) decodePacket(typ int) *Packet {
 }
 
 func (d *Demux) packet() *Packet {
+	if d.nextPacket.length < 0 {
+		d.nextPacket.length = 0
+		return nil // invalid
+	}
+
 	if !d.buf.has(d.nextPacket.length << 3) {
 		return nil
 	}
