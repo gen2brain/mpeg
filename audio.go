@@ -1,6 +1,7 @@
 package mpeg
 
 import (
+	"math"
 	"unsafe"
 )
 
@@ -69,7 +70,7 @@ type Audio struct {
 	allocation      [2][32]*quantizerSpec
 	scaleFactorInfo [2][32]byte
 	scaleFactor     [2][32][3]int
-	sample          [2][32][3]int
+	sample          [2][32][3]float32
 
 	samples Samples
 	format  AudioFormat
@@ -387,7 +388,7 @@ func (a *Audio) decodeFrame() {
 					switch a.format {
 					case AudioF32N:
 						for j := 0; j < 32; j++ {
-							a.samples.Interleaved[((outPos+j)<<1)+ch] = a.u[j] / -1090519040.0
+							a.samples.Interleaved[((outPos+j)<<1)+ch] = a.u[j] / -1073741824.0
 						}
 					case AudioF32NLR:
 						out := a.samples.Left
@@ -395,11 +396,11 @@ func (a *Audio) decodeFrame() {
 							out = a.samples.Right
 						}
 						for j := 0; j < 32; j++ {
-							out[outPos+j] = a.u[j] / -1090519040.0
+							out[outPos+j] = a.u[j] / -1073741824.0
 						}
 					case AudioS16:
 						for j := 0; j < 32; j++ {
-							s := a.u[j] / -1090519040.0
+							s := max(-1, min(1, a.u[j]/-1073741824.0))
 							if s < 0 {
 								a.samples.S16[((outPos+j)<<1)+ch] = int16(s * 0x8000)
 							} else {
@@ -408,7 +409,7 @@ func (a *Audio) decodeFrame() {
 						}
 					case AudioF32:
 						for j := 0; j < 32; j++ {
-							s := a.u[j] / -1090519040.0
+							s := a.u[j] / -1073741824.0
 							if s < 0 {
 								a.samples.F32[((outPos+j)<<1)+ch] = s * 0x80000000
 							} else {
@@ -439,93 +440,69 @@ func (a *Audio) readAllocation(sb, tab3 int) *quantizerSpec {
 
 func (a *Audio) readSamples(ch, sb, part int) {
 	q := a.allocation[ch][sb]
-	sf := a.scaleFactor[ch][sb][part]
-	val := 0
-
 	if q == nil {
-		// No bits allocated for this subband
-		a.sample[ch][sb][0] = 0
-		a.sample[ch][sb][1] = 0
-		a.sample[ch][sb][2] = 0
+		a.sample[ch][sb] = [3]float32{}
 
 		return
 	}
 
-	// Resolve scale factor
-	if sf == 63 {
-		sf = 0
-	} else {
-		shift := sf / 3
-		sf = (scalefactorBase[sf%3] + ((1 << shift) >> 1)) >> shift
-	}
-
-	// Decode samples
-	adj := int(q.Levels)
+	n := int(q.Levels)
+	var c0, c1, c2 int
 	if q.Group != 0 {
-		// Decode grouped samples
-		val = a.buf.read(int(q.Bits))
-		a.sample[ch][sb][0] = val % adj
-		val /= adj
-		a.sample[ch][sb][1] = val % adj
-		a.sample[ch][sb][2] = val / adj
+		val := a.buf.read(int(q.Bits))
+		c0 = val % n
+		val /= n
+		c1 = val % n
+		c2 = val / n
 	} else {
-		// Decode direct samples
-		a.sample[ch][sb][0] = a.buf.read(int(q.Bits))
-		a.sample[ch][sb][1] = a.buf.read(int(q.Bits))
-		a.sample[ch][sb][2] = a.buf.read(int(q.Bits))
+		c0 = a.buf.read(int(q.Bits))
+		c1 = a.buf.read(int(q.Bits))
+		c2 = a.buf.read(int(q.Bits))
 	}
 
-	// Postmultiply samples
-	scale := 65536 / (adj + 1)
-	adj = ((adj + 1) >> 1) - 1
-
-	val = (adj - a.sample[ch][sb][0]) * scale
-	a.sample[ch][sb][0] = (val*(sf>>12) + ((val*(sf&4095) + 2048) >> 12)) >> 12
-
-	val = (adj - a.sample[ch][sb][1]) * scale
-	a.sample[ch][sb][1] = (val*(sf>>12) + ((val*(sf&4095) + 2048) >> 12)) >> 12
-
-	val = (adj - a.sample[ch][sb][2]) * scale
-	a.sample[ch][sb][2] = (val*(sf>>12) + ((val*(sf&4095) + 2048) >> 12)) >> 12
+	f := scalefactors[a.scaleFactor[ch][sb][part]] / float64(n)
+	a.sample[ch][sb][0] = float32(float64(n-1-2*c0) * f)
+	a.sample[ch][sb][1] = float32(float64(n-1-2*c1) * f)
+	a.sample[ch][sb][2] = float32(float64(n-1-2*c2) * f)
 }
 
-func idct36(s *[32][3]int, ss int, d *[1024]float32, dp int) {
+func idct36(s *[32][3]float32, ss int, d *[1024]float32, dp int) {
 	var t01, t02, t03, t04, t05, t06, t07, t08, t09, t10, t11, t12,
 		t13, t14, t15, t16, t17, t18, t19, t20, t21, t22, t23, t24,
 		t25, t26, t27, t28, t29, t30, t31, t32, t33 float32
 
-	t01 = float32(s[0][ss] + s[31][ss])
-	t02 = float32(s[0][ss]-s[31][ss]) * 0.500602998235
-	t03 = float32(s[1][ss] + s[30][ss])
-	t04 = float32(s[1][ss]-s[30][ss]) * 0.505470959898
-	t05 = float32(s[2][ss] + s[29][ss])
-	t06 = float32(s[2][ss]-s[29][ss]) * 0.515447309923
-	t07 = float32(s[3][ss] + s[28][ss])
-	t08 = float32(s[3][ss]-s[28][ss]) * 0.53104259109
-	t09 = float32(s[4][ss] + s[27][ss])
-	t10 = float32(s[4][ss]-s[27][ss]) * 0.553103896034
-	t11 = float32(s[5][ss] + s[26][ss])
-	t12 = float32(s[5][ss]-s[26][ss]) * 0.582934968206
-	t13 = float32(s[6][ss] + s[25][ss])
-	t14 = float32(s[6][ss]-s[25][ss]) * 0.622504123036
-	t15 = float32(s[7][ss] + s[24][ss])
-	t16 = float32(s[7][ss]-s[24][ss]) * 0.674808341455
-	t17 = float32(s[8][ss] + s[23][ss])
-	t18 = float32(s[8][ss]-s[23][ss]) * 0.744536271002
-	t19 = float32(s[9][ss] + s[22][ss])
-	t20 = float32(s[9][ss]-s[22][ss]) * 0.839349645416
-	t21 = float32(s[10][ss] + s[21][ss])
-	t22 = float32(s[10][ss]-s[21][ss]) * 0.972568237862
-	t23 = float32(s[11][ss] + s[20][ss])
-	t24 = float32(s[11][ss]-s[20][ss]) * 1.16943993343
-	t25 = float32(s[12][ss] + s[19][ss])
-	t26 = float32(s[12][ss]-s[19][ss]) * 1.48416461631
-	t27 = float32(s[13][ss] + s[18][ss])
-	t28 = float32(s[13][ss]-s[18][ss]) * 2.05778100995
-	t29 = float32(s[14][ss] + s[17][ss])
-	t30 = float32(s[14][ss]-s[17][ss]) * 3.40760841847
-	t31 = float32(s[15][ss] + s[16][ss])
-	t32 = float32(s[15][ss]-s[16][ss]) * 10.1900081235
+	t01 = (s[0][ss] + s[31][ss])
+	t02 = (s[0][ss] - s[31][ss]) * 0.500602998235
+	t03 = (s[1][ss] + s[30][ss])
+	t04 = (s[1][ss] - s[30][ss]) * 0.505470959898
+	t05 = (s[2][ss] + s[29][ss])
+	t06 = (s[2][ss] - s[29][ss]) * 0.515447309923
+	t07 = (s[3][ss] + s[28][ss])
+	t08 = (s[3][ss] - s[28][ss]) * 0.53104259109
+	t09 = (s[4][ss] + s[27][ss])
+	t10 = (s[4][ss] - s[27][ss]) * 0.553103896034
+	t11 = (s[5][ss] + s[26][ss])
+	t12 = (s[5][ss] - s[26][ss]) * 0.582934968206
+	t13 = (s[6][ss] + s[25][ss])
+	t14 = (s[6][ss] - s[25][ss]) * 0.622504123036
+	t15 = (s[7][ss] + s[24][ss])
+	t16 = (s[7][ss] - s[24][ss]) * 0.674808341455
+	t17 = (s[8][ss] + s[23][ss])
+	t18 = (s[8][ss] - s[23][ss]) * 0.744536271002
+	t19 = (s[9][ss] + s[22][ss])
+	t20 = (s[9][ss] - s[22][ss]) * 0.839349645416
+	t21 = (s[10][ss] + s[21][ss])
+	t22 = (s[10][ss] - s[21][ss]) * 0.972568237862
+	t23 = (s[11][ss] + s[20][ss])
+	t24 = (s[11][ss] - s[20][ss]) * 1.16943993343
+	t25 = (s[12][ss] + s[19][ss])
+	t26 = (s[12][ss] - s[19][ss]) * 1.48416461631
+	t27 = (s[13][ss] + s[18][ss])
+	t28 = (s[13][ss] - s[18][ss]) * 2.05778100995
+	t29 = (s[14][ss] + s[17][ss])
+	t30 = (s[14][ss] - s[17][ss]) * 3.40760841847
+	t31 = (s[15][ss] + s[16][ss])
+	t32 = (s[15][ss] - s[16][ss]) * 10.1900081235
 
 	t33 = t01 + t31
 	t31 = (t01 - t31) * 0.502419286188
@@ -805,9 +782,13 @@ var bitrate = []int16{
 	8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, // MPEG-2
 }
 
-var scalefactorBase = []int{
-	0x02000000, 0x01965FEA, 0x01428A30,
-}
+var scalefactors = func() (t [64]float64) {
+	for i := range 63 {
+		t[i] = 32768 * math.Exp2(1-float64(i)/3)
+	}
+
+	return t
+}()
 
 var synthesisWindow = []float32{
 	0.0, -0.5, -0.5, -0.5, -0.5, -0.5,

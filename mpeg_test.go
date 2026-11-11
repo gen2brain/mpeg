@@ -381,9 +381,9 @@ func TestAudioGolden(t *testing.T) {
 	// all correct. Hashes: no FMA (amd64), windowing FMA (amd64 AVX2),
 	// windowing+idct36 FMA (arm64).
 	want := map[uint64]bool{
-		0xf1b76cdf8e6cdea5: true,
-		0x50f3ab75f5fb0fb5: true,
-		0x245c591bb52c83b1: true,
+		0x405d166317d6fb8d: true,
+		0x27b94bf42ccbd675: true,
+		0x3c761702da063f05: true,
 	}
 	if got := h.Sum64(); !want[got] {
 		t.Fatalf("audio output hash: got %#016x (frames=%d)", got, frames)
