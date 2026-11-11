@@ -514,7 +514,7 @@ func (v *Video) decodeMacroblock() {
 	v.mbRow = v.macroblockAddress / v.mbWidth
 	v.mbCol = v.macroblockAddress % v.mbWidth
 
-	if v.mbCol >= v.mbWidth || v.mbRow >= v.mbHeight {
+	if v.macroblockAddress < 0 || v.mbCol >= v.mbWidth || v.mbRow >= v.mbHeight {
 		return // corrupt stream
 	}
 
@@ -605,6 +605,31 @@ func (v *Video) decodeMotionVector(rSize, motion int) int {
 	return motion
 }
 
+func macroblockInBounds(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) bool {
+	return blockInBounds(cap(s.Y.Data), len(d.Y.Data), lumaWidth, 16, motionH, motionV, mbRow, mbCol) &&
+		blockInBounds(min(cap(s.Cb.Data), cap(s.Cr.Data)), min(len(d.Cb.Data), len(d.Cr.Data)),
+			chromaWidth, 8, motionH/2, motionV/2, mbRow, mbCol)
+}
+
+func blockInBounds(srcCap, dstLen, stride, size, motionH, motionV, mbRow, mbCol int) bool {
+	if mbRow < 0 || mbCol < 0 || mbCol*size+size > stride {
+		return false
+	}
+	if (mbRow*size+size-1)*stride+mbCol*size+size > dstLen {
+		return false
+	}
+	si := (mbRow*size+(motionV>>1))*stride + mbCol*size + (motionH >> 1)
+
+	return si >= 0 && si+(size-1+(motionV&1))*stride+size+(motionH&1) <= srcCap
+}
+
+func (v *Video) copyMacroblock(motionH, motionV int, s *Frame) {
+	if !macroblockInBounds(motionH, motionV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, s, &v.frameCurrent) {
+		return // corrupt stream
+	}
+	copyMacroblock(motionH, motionV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, s, &v.frameCurrent)
+}
+
 func (v *Video) predictMacroblock() {
 	fwH := v.motionForward.H
 	fwV := v.motionForward.V
@@ -624,15 +649,15 @@ func (v *Video) predictMacroblock() {
 		}
 
 		if v.motionForward.IsSet {
-			copyMacroblock(fwH, fwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameForward, &v.frameCurrent)
+			v.copyMacroblock(fwH, fwV, &v.frameForward)
 			if v.motionBackward.IsSet {
-				copyMacroblock(bwH, bwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameBackward, &v.frameCurrent)
+				v.copyMacroblock(bwH, bwV, &v.frameBackward)
 			}
 		} else {
-			copyMacroblock(bwH, bwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameBackward, &v.frameCurrent)
+			v.copyMacroblock(bwH, bwV, &v.frameBackward)
 		}
 	} else {
-		copyMacroblock(fwH, fwV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, &v.frameForward, &v.frameCurrent)
+		v.copyMacroblock(fwH, fwV, &v.frameForward)
 	}
 }
 
