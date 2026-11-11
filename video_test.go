@@ -236,7 +236,7 @@ func TestDecodeVlc(t *testing.T) {
 	for name, table := range tables {
 		for seed := range 200 {
 			data := make([]byte, 64)
-			x := uint32(seed*2654435761 + 1)
+			x := uint32(seed)*2654435761 + 1
 			for i := range data {
 				x ^= x << 13
 				x ^= x >> 17
