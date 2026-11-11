@@ -104,6 +104,11 @@ type Video struct {
 
 	hasReferenceFrame bool
 	assumeNoBFrames   bool
+
+	references    int
+	gopReferences int
+	closedGOP     bool
+	brokenLink    bool
 }
 
 // NewVideo creates a video decoder with buffer as a source.
@@ -197,6 +202,10 @@ func (v *Video) Rewind() {
 	v.time = 0
 	v.framesDecoded = 0
 	v.hasReferenceFrame = false
+	v.references = 0
+	v.gopReferences = 0
+	v.closedGOP = false
+	v.brokenLink = false
 	v.startCode = -1
 }
 
@@ -215,7 +224,7 @@ func (v *Video) Decode() *Frame {
 
 	for {
 		if v.startCode != startPicture {
-			v.startCode = v.buf.findStartCode(startPicture)
+			v.startCode = v.findPicture()
 
 			if v.startCode == -1 {
 				// If we reached the end of the file and the previously decoded
@@ -269,6 +278,33 @@ func (v *Video) Decode() *Frame {
 	v.time = float64(v.framesDecoded) / v.frameRate
 
 	return frame
+}
+
+func (v *Video) findPicture() int {
+	code := v.startCode
+	for {
+		if code == startGOP {
+			v.buf.skip(25)
+			v.closedGOP = v.buf.read1() == 1
+			v.brokenLink = v.buf.read1() == 1
+			v.gopReferences = 0
+		}
+		code = v.buf.nextStartCode()
+		if code == startPicture || code == -1 {
+			return code
+		}
+	}
+}
+
+func (v *Video) hasForwardReference() bool {
+	switch {
+	case v.gopReferences >= 2:
+		return true
+	case v.closedGOP:
+		return v.gopReferences == 1
+	default:
+		return !v.brokenLink && v.references >= 2
+	}
 }
 
 func (v *Video) decodeSequenceHeader() bool {
@@ -385,6 +421,10 @@ func (v *Video) decodePicture() bool {
 		return false
 	}
 
+	if pictureType == pictureTypeB && !v.hasForwardReference() {
+		return false
+	}
+
 	// Forward fullPx, fCode
 	if pictureType == pictureTypePredictive || pictureType == pictureTypeB {
 		v.motionForward.FullPx = v.buf.read1()
@@ -407,6 +447,10 @@ func (v *Video) decodePicture() bool {
 		v.motionBackward.RSize = fCode - 1
 	}
 	v.pictureType = pictureType
+	if pictureType != pictureTypeB {
+		v.references++
+		v.gopReferences++
+	}
 
 	frameTemp := v.frameForward
 	if v.pictureType == pictureTypeIntra || v.pictureType == pictureTypePredictive {
@@ -964,6 +1008,7 @@ const (
 	startUserData   = 0xB2
 	startSequence   = 0xB3
 	startExtension  = 0xB5
+	startGOP        = 0xB8
 )
 
 func idctBlockGo(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {

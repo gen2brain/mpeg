@@ -391,7 +391,7 @@ func TestAudioGolden(t *testing.T) {
 }
 
 // TestVideoGolden hashes the visible area of every frame of test.mpg; the
-// expected value is pl_mpeg's output for the same file.
+// expected value is pl_mpeg's output without the two leading B frames of the open first GOP.
 func TestVideoGolden(t *testing.T) {
 	mpg, err := mpeg.New(bytes.NewReader(testMpg))
 	if err != nil {
@@ -414,7 +414,7 @@ func TestVideoGolden(t *testing.T) {
 		frames++
 	}
 
-	const want uint64 = 0x38319faf42238faf
+	const want uint64 = 0x9426ca33696b9758
 	if got := h.Sum64(); got != want {
 		t.Fatalf("video output hash: got %#016x want %#016x (frames=%d)", got, want, frames)
 	}
