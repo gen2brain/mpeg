@@ -1,6 +1,7 @@
 package mpeg
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 )
@@ -223,6 +224,13 @@ func (b *Buffer) has(count int) bool {
 func (b *Buffer) read(count int) int {
 	if (len(b.bytes)<<3)-b.bitIndex < count && !b.has(count) {
 		return 0
+	}
+
+	if i := b.bitIndex >> 3; i+8 <= len(b.bytes) && count <= 57 {
+		v := binary.BigEndian.Uint64(b.bytes[i:]) << uint(b.bitIndex&7)
+		b.bitIndex += count
+
+		return int(v >> uint(64-count))
 	}
 
 	value := 0
