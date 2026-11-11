@@ -160,6 +160,84 @@ func TestDemuxNegativePacketLength(t *testing.T) {
 	t.Fatal("the packet after the invalid one was not found")
 }
 
+func TestTruncated(t *testing.T) {
+	const limit = 10000
+
+	for _, tc := range []struct {
+		name   string
+		data   []byte
+		decode func(data []byte) int
+	}{
+		{"mpeg1video", testMpeg1video, func(data []byte) int {
+			buf, _ := mpeg.NewBuffer(bytes.NewReader(data))
+			buf.SetLoadCallback(buf.LoadReaderCallback)
+			video := mpeg.NewVideo(buf)
+			n := 0
+			for n < limit && video.Decode() != nil {
+				n++
+			}
+
+			return n
+		}},
+		{"mp2", testMp2, func(data []byte) int {
+			buf, _ := mpeg.NewBuffer(bytes.NewReader(data))
+			buf.SetLoadCallback(buf.LoadReaderCallback)
+			audio := mpeg.NewAudio(buf)
+			n := 0
+			for n < limit && audio.Decode() != nil {
+				n++
+			}
+
+			return n
+		}},
+		{"mpg video", testMpg, func(data []byte) int {
+			n := 0
+			if mpg, err := mpeg.New(bytes.NewReader(data)); err == nil {
+				for n < limit && mpg.DecodeVideo() != nil {
+					n++
+				}
+			}
+
+			return n
+		}},
+		{"mpg audio", testMpg, func(data []byte) int {
+			n := 0
+			if mpg, err := mpeg.New(bytes.NewReader(data)); err == nil {
+				for n < limit && mpg.DecodeAudio() != nil {
+					n++
+				}
+			}
+
+			return n
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cuts []int
+			for n := 1; n < len(tc.data); n += 4999 {
+				cuts = append(cuts, n)
+			}
+			for i := 0; i+4 < min(len(tc.data), 1<<16); i++ {
+				if bytes.HasPrefix(tc.data[i:], []byte{0, 0, 1, 0}) {
+					cuts = append(cuts, i+4)
+				}
+			}
+
+			for _, n := range cuts {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							t.Fatalf("truncated at %d of %d bytes: %v", n, len(tc.data), r)
+						}
+					}()
+					if got := tc.decode(tc.data[:n]); got == limit {
+						t.Fatalf("truncated at %d of %d bytes: still decoding after %d units", n, len(tc.data), got)
+					}
+				}()
+			}
+		})
+	}
+}
+
 func TestAudio(t *testing.T) {
 	buf, err := mpeg.NewBuffer(bytes.NewReader(testMp2))
 	if err != nil {

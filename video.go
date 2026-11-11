@@ -242,7 +242,11 @@ func (v *Video) Decode() *Frame {
 		}
 		v.buf.discardReadBytes()
 
-		v.decodePicture()
+		if !v.decodePicture() {
+			v.startCode = -1
+
+			continue
+		}
 
 		switch {
 		case v.assumeNoBFrames:
@@ -371,37 +375,38 @@ func (v *Video) initFrame(frame *Frame) {
 	}
 }
 
-func (v *Video) decodePicture() {
+func (v *Video) decodePicture() bool {
 	v.buf.skip(10) // skip temporalReference
-	v.pictureType = v.buf.read(3)
+	pictureType := v.buf.read(3)
 	v.buf.skip(16) // skip vbv_delay
 
 	// D frames or unknown coding type
-	if v.pictureType <= 0 || v.pictureType > pictureTypeB {
-		return
+	if pictureType <= 0 || pictureType > pictureTypeB {
+		return false
 	}
 
 	// Forward fullPx, fCode
-	if v.pictureType == pictureTypePredictive || v.pictureType == pictureTypeB {
+	if pictureType == pictureTypePredictive || pictureType == pictureTypeB {
 		v.motionForward.FullPx = v.buf.read1()
 		fCode := v.buf.read(3)
 		if fCode == 0 {
 			// Ignore picture with zero fCode
-			return
+			return false
 		}
 		v.motionForward.RSize = fCode - 1
 	}
 
 	// Backward fullPx, fCode
-	if v.pictureType == pictureTypeB {
+	if pictureType == pictureTypeB {
 		v.motionBackward.FullPx = v.buf.read1()
 		fCode := v.buf.read(3)
 		if fCode == 0 {
 			// Ignore picture with zero fCode
-			return
+			return false
 		}
 		v.motionBackward.RSize = fCode - 1
 	}
+	v.pictureType = pictureType
 
 	frameTemp := v.frameForward
 	if v.pictureType == pictureTypeIntra || v.pictureType == pictureTypePredictive {
@@ -431,6 +436,8 @@ func (v *Video) decodePicture() {
 		v.frameBackward = v.frameCurrent
 		v.frameCurrent = frameTemp
 	}
+
+	return true
 }
 
 func (v *Video) decodeSlice(slice int) {
