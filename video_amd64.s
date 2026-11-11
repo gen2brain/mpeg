@@ -6,7 +6,7 @@
 // It supports direct copy, horizontal, vertical, and bilinear interpolation
 // for luma (16x16) and chroma (8x8) blocks, with rounding as per MPEG spec.
 //
-// func copyMacroblockSSE2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+// func copyMacroblockSSE2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 //
 // Half-pel along a single axis is the rounding average (a+b+1)>>1, which PAVGB
 // computes per byte directly. The bilinear case needs (a+b+c+d+2)>>2, which is
@@ -19,7 +19,7 @@
 //   R11 = dest frame, then d.Cr.Data
 //   X13 = 0x0002 per word (bilinear rounding bias)
 //   X15 = 0x0000 (zero, for unpack/pack)
-TEXT ·copyMacroblockSSE2(SB), NOSPLIT, $0-64
+TEXT ·copyMacroblockSSE2(SB), NOSPLIT, $0-65
 	MOVQ motionH+0(FP), AX
 	MOVQ motionV+8(FP), BX
 	MOVQ mbRow+16(FP), CX
@@ -77,8 +77,11 @@ luma_hf0:
 	JMP  luma_vert
 
 luma_direct:
+	CMPB avg+64(FP), $0
+	JNE  luma_direct_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_direct_loop:
 	MOVOU (SI), X0
 	MOVOU X0, (DI)
@@ -89,8 +92,11 @@ luma_direct_loop:
 	JMP   chroma_begin
 
 luma_horiz:
+	CMPB avg+64(FP), $0
+	JNE  luma_horiz_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_horiz_loop:
 	MOVOU (SI), X0
 	MOVOU 1(SI), X1
@@ -103,8 +109,11 @@ luma_horiz_loop:
 	JMP   chroma_begin
 
 luma_vert:
+	CMPB avg+64(FP), $0
+	JNE  luma_vert_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_vert_loop:
 	MOVOU (SI), X0
 	MOVOU (SI)(R8*1), X1
@@ -117,8 +126,11 @@ luma_vert_loop:
 	JMP   chroma_begin
 
 luma_bilin:
+	CMPB avg+64(FP), $0
+	JNE  luma_bilin_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_bilin_loop:
 	MOVOU (SI), X0        // a = Y[i,j]
 	MOVOU 1(SI), X1       // b = Y[i,j+1]
@@ -242,8 +254,11 @@ chroma_hf0:
 	JMP  chroma_vert
 
 chroma_direct:
+	CMPB avg+64(FP), $0
+	JNE  chroma_direct_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_direct_loop:
 	MOVQ (SI), X0
 	MOVQ X0, (DI)
@@ -254,8 +269,11 @@ chroma_direct_loop:
 	JMP  chroma_next
 
 chroma_horiz:
+	CMPB avg+64(FP), $0
+	JNE  chroma_horiz_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_horiz_loop:
 	MOVQ  (SI), X0
 	MOVQ  1(SI), X1
@@ -268,8 +286,11 @@ chroma_horiz_loop:
 	JMP   chroma_next
 
 chroma_vert:
+	CMPB avg+64(FP), $0
+	JNE  chroma_vert_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_vert_loop:
 	MOVQ  (SI), X0
 	MOVQ  (SI)(R9*1), X1
@@ -282,8 +303,11 @@ chroma_vert_loop:
 	JMP   chroma_next
 
 chroma_bilin:
+	CMPB avg+64(FP), $0
+	JNE  chroma_bilin_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_bilin_loop:
 	MOVQ      (SI), X0
 	MOVQ      1(SI), X1
@@ -317,15 +341,195 @@ chroma_next:
 chroma_done:
 	RET
 
+luma_direct_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_direct_avg_loop:
+	MOVOU (SI), X0
+	MOVOU (DI), X9
+	PAVGB X9, X0
+	MOVOU X0, (DI)
+	ADDQ  R8, SI
+	ADDQ  R8, DI
+	DECQ  R12
+	JNZ   luma_direct_avg_loop
+	JMP chroma_begin
+
+luma_horiz_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_horiz_avg_loop:
+	MOVOU (SI), X0
+	MOVOU 1(SI), X1
+	PAVGB X1, X0
+	MOVOU (DI), X9
+	PAVGB X9, X0
+	MOVOU X0, (DI)
+	ADDQ  R8, SI
+	ADDQ  R8, DI
+	DECQ  R12
+	JNZ   luma_horiz_avg_loop
+	JMP chroma_begin
+
+luma_vert_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_vert_avg_loop:
+	MOVOU (SI), X0
+	MOVOU (SI)(R8*1), X1
+	PAVGB X1, X0
+	MOVOU (DI), X9
+	PAVGB X9, X0
+	MOVOU X0, (DI)
+	ADDQ  R8, SI
+	ADDQ  R8, DI
+	DECQ  R12
+	JNZ   luma_vert_avg_loop
+	JMP chroma_begin
+
+luma_bilin_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_bilin_avg_loop:
+	MOVOU (SI), X0        // a = Y[i,j]
+	MOVOU 1(SI), X1       // b = Y[i,j+1]
+	MOVOU (SI)(R8*1), X2  // c = Y[i+1,j]
+	MOVOU 1(SI)(R8*1), X3 // d = Y[i+1,j+1]
+
+	// Low 8 bytes: widen to words, sum a+b+c+d, +2, >>2, pack.
+	MOVO      X0, X4
+	PUNPCKLBW X15, X4
+	MOVO      X1, X5
+	PUNPCKLBW X15, X5
+	PADDW     X5, X4
+	MOVO      X2, X6
+	PUNPCKLBW X15, X6
+	MOVO      X3, X7
+	PUNPCKLBW X15, X7
+	PADDW     X7, X6
+	PADDW     X6, X4
+	PADDW     X13, X4
+	PSRLW     $2, X4
+	PACKUSWB  X15, X4
+
+	// High 8 bytes.
+	MOVO      X0, X8
+	PUNPCKHBW X15, X8
+	MOVO      X1, X9
+	PUNPCKHBW X15, X9
+	PADDW     X9, X8
+	MOVO      X2, X10
+	PUNPCKHBW X15, X10
+	MOVO      X3, X11
+	PUNPCKHBW X15, X11
+	PADDW     X11, X10
+	PADDW     X10, X8
+	PADDW     X13, X8
+	PSRLW     $2, X8
+	PACKUSWB  X15, X8
+
+	MOVQ  (DI), X12
+	PAVGB X12, X4
+	MOVQ  8(DI), X14
+	PAVGB X14, X8
+	MOVQ X4, (DI)
+	MOVQ X8, 8(DI)
+	ADDQ R8, SI
+	ADDQ R8, DI
+	DECQ R12
+	JNZ  luma_bilin_avg_loop
+	JMP chroma_begin
+
+chroma_direct_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_direct_avg_loop:
+	MOVQ (SI), X0
+	MOVQ  (DI), X9
+	PAVGB X9, X0
+	MOVQ X0, (DI)
+	ADDQ R9, SI
+	ADDQ R9, DI
+	DECQ AX
+	JNZ  chroma_direct_avg_loop
+	JMP chroma_next
+
+chroma_horiz_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_horiz_avg_loop:
+	MOVQ  (SI), X0
+	MOVQ  1(SI), X1
+	PAVGB X1, X0
+	MOVQ  (DI), X9
+	PAVGB X9, X0
+	MOVQ  X0, (DI)
+	ADDQ  R9, SI
+	ADDQ  R9, DI
+	DECQ  AX
+	JNZ   chroma_horiz_avg_loop
+	JMP chroma_next
+
+chroma_vert_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_vert_avg_loop:
+	MOVQ  (SI), X0
+	MOVQ  (SI)(R9*1), X1
+	PAVGB X1, X0
+	MOVQ  (DI), X9
+	PAVGB X9, X0
+	MOVQ  X0, (DI)
+	ADDQ  R9, SI
+	ADDQ  R9, DI
+	DECQ  AX
+	JNZ   chroma_vert_avg_loop
+	JMP chroma_next
+
+chroma_bilin_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_bilin_avg_loop:
+	MOVQ      (SI), X0
+	MOVQ      1(SI), X1
+	MOVQ      (SI)(R9*1), X2
+	MOVQ      1(SI)(R9*1), X3
+	PUNPCKLBW X15, X0
+	PUNPCKLBW X15, X1
+	PUNPCKLBW X15, X2
+	PUNPCKLBW X15, X3
+	PADDW     X1, X0
+	PADDW     X3, X2
+	PADDW     X2, X0
+	PADDW     X13, X0
+	PSRLW     $2, X0
+	PACKUSWB  X15, X0
+	MOVQ  (DI), X9
+	PAVGB X9, X0
+	MOVQ      X0, (DI)
+	ADDQ      R9, SI
+	ADDQ      R9, DI
+	DECQ      AX
+	JNZ       chroma_bilin_avg_loop
+	JMP chroma_next
+
 // copyMacroblockAVX2 is the AVX2 counterpart of copyMacroblockSSE2. It uses
 // VEX-encoded instructions throughout (issuing VZEROUPPER before returning),
 // and widens all 16 luma words at once with VPMOVZXBW instead of unpacking two
 // halves separately.
 //
-// func copyMacroblockAVX2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+// func copyMacroblockAVX2(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 //
 // Persistent registers mirror the SSE2 version; Y13/Y15 hold the word constants.
-TEXT ·copyMacroblockAVX2(SB), NOSPLIT, $0-64
+TEXT ·copyMacroblockAVX2(SB), NOSPLIT, $0-65
 	MOVQ motionH+0(FP), AX
 	MOVQ motionV+8(FP), BX
 	MOVQ mbRow+16(FP), CX
@@ -380,8 +584,11 @@ luma_avx2_hf0:
 	JMP  luma_avx2_vert
 
 luma_avx2_direct:
+	CMPB avg+64(FP), $0
+	JNE  luma_avx2_direct_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_avx2_direct_loop:
 	VMOVDQU (SI), X0
 	VMOVDQU X0, (DI)
@@ -392,8 +599,11 @@ luma_avx2_direct_loop:
 	JMP     chroma_avx2_begin
 
 luma_avx2_horiz:
+	CMPB avg+64(FP), $0
+	JNE  luma_avx2_horiz_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_avx2_horiz_loop:
 	VMOVDQU (SI), X0
 	VMOVDQU 1(SI), X1
@@ -406,8 +616,11 @@ luma_avx2_horiz_loop:
 	JMP     chroma_avx2_begin
 
 luma_avx2_vert:
+	CMPB avg+64(FP), $0
+	JNE  luma_avx2_vert_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_avx2_vert_loop:
 	VMOVDQU (SI), X0
 	VMOVDQU (SI)(R8*1), X1
@@ -420,8 +633,11 @@ luma_avx2_vert_loop:
 	JMP     chroma_avx2_begin
 
 luma_avx2_bilin:
+	CMPB avg+64(FP), $0
+	JNE  luma_avx2_bilin_avg
 	MOVQ $16, R12
 
+	PCALIGN $16
 luma_avx2_bilin_loop:
 	VMOVDQU   (SI), X0        // a
 	VMOVDQU   1(SI), X1       // b
@@ -518,8 +734,11 @@ chroma_avx2_hf0:
 	JMP  chroma_avx2_vert
 
 chroma_avx2_direct:
+	CMPB avg+64(FP), $0
+	JNE  chroma_avx2_direct_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_avx2_direct_loop:
 	VMOVQ (SI), X0
 	VMOVQ X0, (DI)
@@ -530,8 +749,11 @@ chroma_avx2_direct_loop:
 	JMP   chroma_avx2_next
 
 chroma_avx2_horiz:
+	CMPB avg+64(FP), $0
+	JNE  chroma_avx2_horiz_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_avx2_horiz_loop:
 	VMOVQ  (SI), X0
 	VMOVQ  1(SI), X1
@@ -544,8 +766,11 @@ chroma_avx2_horiz_loop:
 	JMP    chroma_avx2_next
 
 chroma_avx2_vert:
+	CMPB avg+64(FP), $0
+	JNE  chroma_avx2_vert_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_avx2_vert_loop:
 	VMOVQ  (SI), X0
 	VMOVQ  (SI)(R9*1), X1
@@ -558,8 +783,11 @@ chroma_avx2_vert_loop:
 	JMP    chroma_avx2_next
 
 chroma_avx2_bilin:
+	CMPB avg+64(FP), $0
+	JNE  chroma_avx2_bilin_avg
 	MOVQ $8, AX
 
+	PCALIGN $16
 chroma_avx2_bilin_loop:
 	VMOVQ     (SI), X0
 	VMOVQ     1(SI), X1
@@ -593,3 +821,161 @@ chroma_avx2_next:
 chroma_avx2_done:
 	VZEROUPPER
 	RET
+
+luma_avx2_direct_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_avx2_direct_avg_loop:
+	VMOVDQU (SI), X0
+	VMOVDQU (DI), X9
+	VPAVGB  X9, X0, X0
+	VMOVDQU X0, (DI)
+	ADDQ    R8, SI
+	ADDQ    R8, DI
+	DECQ    R12
+	JNZ     luma_avx2_direct_avg_loop
+	JMP chroma_avx2_begin
+
+luma_avx2_horiz_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_avx2_horiz_avg_loop:
+	VMOVDQU (SI), X0
+	VMOVDQU 1(SI), X1
+	VPAVGB  X1, X0, X0
+	VMOVDQU (DI), X9
+	VPAVGB  X9, X0, X0
+	VMOVDQU X0, (DI)
+	ADDQ    R8, SI
+	ADDQ    R8, DI
+	DECQ    R12
+	JNZ     luma_avx2_horiz_avg_loop
+	JMP chroma_avx2_begin
+
+luma_avx2_vert_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_avx2_vert_avg_loop:
+	VMOVDQU (SI), X0
+	VMOVDQU (SI)(R8*1), X1
+	VPAVGB  X1, X0, X0
+	VMOVDQU (DI), X9
+	VPAVGB  X9, X0, X0
+	VMOVDQU X0, (DI)
+	ADDQ    R8, SI
+	ADDQ    R8, DI
+	DECQ    R12
+	JNZ     luma_avx2_vert_avg_loop
+	JMP chroma_avx2_begin
+
+luma_avx2_bilin_avg:
+	MOVQ $16, R12
+
+	PCALIGN $16
+luma_avx2_bilin_avg_loop:
+	VMOVDQU   (SI), X0        // a
+	VMOVDQU   1(SI), X1       // b
+	VMOVDQU   (SI)(R8*1), X2  // c
+	VMOVDQU   1(SI)(R8*1), X3 // d
+	VPMOVZXBW X0, Y4
+	VPMOVZXBW X1, Y5
+	VPMOVZXBW X2, Y6
+	VPMOVZXBW X3, Y7
+	VPADDW    Y5, Y4, Y4
+	VPADDW    Y7, Y6, Y6
+	VPADDW    Y6, Y4, Y4
+	VPADDW    Y13, Y4, Y4
+	VPSRLW    $2, Y4, Y4
+
+	// Pack 16 words back to 16 bytes across both 128-bit lanes.
+	VEXTRACTI128 $1, Y4, X5
+	VPACKUSWB    X5, X4, X4
+	VMOVDQU (DI), X9
+	VPAVGB  X9, X4, X4
+	VMOVDQU      X4, (DI)
+
+	ADDQ R8, SI
+	ADDQ R8, DI
+	DECQ R12
+	JNZ  luma_avx2_bilin_avg_loop
+	JMP chroma_avx2_begin
+
+chroma_avx2_direct_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_avx2_direct_avg_loop:
+	VMOVQ (SI), X0
+	VMOVQ  (DI), X9
+	VPAVGB X9, X0, X0
+	VMOVQ X0, (DI)
+	ADDQ  R9, SI
+	ADDQ  R9, DI
+	DECQ  AX
+	JNZ   chroma_avx2_direct_avg_loop
+	JMP chroma_avx2_next
+
+chroma_avx2_horiz_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_avx2_horiz_avg_loop:
+	VMOVQ  (SI), X0
+	VMOVQ  1(SI), X1
+	VPAVGB X1, X0, X0
+	VMOVQ  (DI), X9
+	VPAVGB X9, X0, X0
+	VMOVQ  X0, (DI)
+	ADDQ   R9, SI
+	ADDQ   R9, DI
+	DECQ   AX
+	JNZ    chroma_avx2_horiz_avg_loop
+	JMP chroma_avx2_next
+
+chroma_avx2_vert_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_avx2_vert_avg_loop:
+	VMOVQ  (SI), X0
+	VMOVQ  (SI)(R9*1), X1
+	VPAVGB X1, X0, X0
+	VMOVQ  (DI), X9
+	VPAVGB X9, X0, X0
+	VMOVQ  X0, (DI)
+	ADDQ   R9, SI
+	ADDQ   R9, DI
+	DECQ   AX
+	JNZ    chroma_avx2_vert_avg_loop
+	JMP chroma_avx2_next
+
+chroma_avx2_bilin_avg:
+	MOVQ $8, AX
+
+	PCALIGN $16
+chroma_avx2_bilin_avg_loop:
+	VMOVQ     (SI), X0
+	VMOVQ     1(SI), X1
+	VMOVQ     (SI)(R9*1), X2
+	VMOVQ     1(SI)(R9*1), X3
+	VPMOVZXBW X0, X4
+	VPMOVZXBW X1, X5
+	VPMOVZXBW X2, X6
+	VPMOVZXBW X3, X7
+	VPADDW    X5, X4, X4
+	VPADDW    X7, X6, X6
+	VPADDW    X6, X4, X4
+	VPADDW    X13, X4, X4
+	VPSRLW    $2, X4, X4
+	VPACKUSWB X4, X4, X4
+	VMOVQ  (DI), X9
+	VPAVGB X9, X4, X4
+	VMOVQ     X4, (DI)
+	ADDQ      R9, SI
+	ADDQ      R9, DI
+	DECQ      AX
+	JNZ       chroma_avx2_bilin_avg_loop
+	JMP chroma_avx2_next

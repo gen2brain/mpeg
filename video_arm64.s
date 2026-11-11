@@ -6,7 +6,7 @@
 // NEON, for luma (16x16) and chroma (8x8) blocks, with direct copy, horizontal,
 // vertical, and bilinear interpolation.
 //
-// func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+// func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 //
 // Go's arm64 assembler does not expose URHADD/UADDL/XTN, so the rounding
 // averages are built from the available NEON ops:
@@ -21,8 +21,9 @@
 //   R12 = current source pointer, R13 = current dest pointer
 //   V29 = 0x0002 per 16-bit lane (bilinear bias)
 //   V30 = 0x01 per byte (carry mask for single-axis rounding)
-TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-64
-	MOVD motionH+0(FP), R0
+TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-65
+	MOVD  motionH+0(FP), R0
+	MOVBU avg+64(FP), R25
 	MOVD motionV+8(FP), R1
 	MOVD mbRow+16(FP), R2
 	MOVD mbCol+24(FP), R3
@@ -73,8 +74,10 @@ luma_no_hfrac:
 	B   luma_vert
 
 luma_direct:
+	CBNZ R25, luma_direct_avg
 	MOVD $16, R16
 
+	PCALIGN $16
 luma_direct_loop:
 	VLD1 (R12), [V0.B16]
 	VST1 [V0.B16], (R13)
@@ -85,8 +88,10 @@ luma_direct_loop:
 	B    chroma_begin
 
 luma_horiz:
+	CBNZ R25, luma_horiz_avg
 	MOVD $16, R16
 
+	PCALIGN $16
 luma_horiz_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   $1, R12, R17
@@ -105,8 +110,10 @@ luma_horiz_loop:
 	B     chroma_begin
 
 luma_vert:
+	CBNZ R25, luma_vert_avg
 	MOVD $16, R16
 
+	PCALIGN $16
 luma_vert_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   R4, R12, R17
@@ -125,8 +132,10 @@ luma_vert_loop:
 	B     chroma_begin
 
 luma_bilin:
+	CBNZ R25, luma_bilin_avg
 	MOVD $16, R16
 
+	PCALIGN $16
 luma_bilin_loop:
 	VLD1 (R12), [V0.B16]  // a = Y[i,j]
 	ADD  $1, R12, R17
@@ -229,8 +238,10 @@ chroma_no_hfrac:
 	B   chroma_vert
 
 chroma_direct:
+	CBNZ R25, chroma_direct_avg
 	MOVD $8, R16
 
+	PCALIGN $16
 chroma_direct_loop:
 	VLD1 (R12), [V0.D1]
 	VST1 [V0.D1], (R13)
@@ -241,8 +252,10 @@ chroma_direct_loop:
 	B    chroma_next
 
 chroma_horiz:
+	CBNZ R25, chroma_horiz_avg
 	MOVD $8, R16
 
+	PCALIGN $16
 chroma_horiz_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   $1, R12, R17
@@ -261,8 +274,10 @@ chroma_horiz_loop:
 	B     chroma_next
 
 chroma_vert:
+	CBNZ R25, chroma_vert_avg
 	MOVD $8, R16
 
+	PCALIGN $16
 chroma_vert_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   R5, R12, R17
@@ -281,8 +296,10 @@ chroma_vert_loop:
 	B     chroma_next
 
 chroma_bilin:
+	CBNZ R25, chroma_bilin_avg
 	MOVD $8, R16
 
+	PCALIGN $16
 chroma_bilin_loop:
 	VLD1   (R12), [V0.D1]
 	ADD    $1, R12, R17
@@ -317,3 +334,243 @@ chroma_next:
 
 chroma_done:
 	RET
+
+luma_direct_avg:
+	MOVD $16, R16
+
+	PCALIGN $16
+luma_direct_avg_loop:
+	VLD1 (R12), [V0.B16]
+	VLD1  (R13), [V16.B16]
+	VUSHR $1, V0.B16, V17.B16
+	VUSHR $1, V16.B16, V18.B16
+	VADD  V18.B16, V17.B16, V17.B16
+	VORR  V16.B16, V0.B16, V18.B16
+	VAND  V30.B16, V18.B16, V18.B16
+	VADD  V18.B16, V17.B16, V0.B16
+	VST1 [V0.B16], (R13)
+	ADD  R4, R12, R12
+	ADD  R4, R13, R13
+	SUB  $1, R16, R16
+	CBNZ R16, luma_direct_avg_loop
+	B    chroma_begin
+
+luma_horiz_avg:
+	MOVD $16, R16
+
+	PCALIGN $16
+luma_horiz_avg_loop:
+	VLD1  (R12), [V0.B16]
+	ADD   $1, R12, R17
+	VLD1  (R17), [V1.B16]
+	VUSHR $1, V0.B16, V2.B16
+	VUSHR $1, V1.B16, V3.B16
+	VADD  V3.B16, V2.B16, V2.B16
+	VORR  V1.B16, V0.B16, V3.B16
+	VAND  V30.B16, V3.B16, V3.B16
+	VADD  V3.B16, V2.B16, V2.B16
+	VLD1  (R13), [V16.B16]
+	VUSHR $1, V2.B16, V17.B16
+	VUSHR $1, V16.B16, V18.B16
+	VADD  V18.B16, V17.B16, V17.B16
+	VORR  V16.B16, V2.B16, V18.B16
+	VAND  V30.B16, V18.B16, V18.B16
+	VADD  V18.B16, V17.B16, V2.B16
+	VST1  [V2.B16], (R13)
+	ADD   R4, R12, R12
+	ADD   R4, R13, R13
+	SUB   $1, R16, R16
+	CBNZ  R16, luma_horiz_avg_loop
+	B    chroma_begin
+
+luma_vert_avg:
+	MOVD $16, R16
+
+	PCALIGN $16
+luma_vert_avg_loop:
+	VLD1  (R12), [V0.B16]
+	ADD   R4, R12, R17
+	VLD1  (R17), [V1.B16]
+	VUSHR $1, V0.B16, V2.B16
+	VUSHR $1, V1.B16, V3.B16
+	VADD  V3.B16, V2.B16, V2.B16
+	VORR  V1.B16, V0.B16, V3.B16
+	VAND  V30.B16, V3.B16, V3.B16
+	VADD  V3.B16, V2.B16, V2.B16
+	VLD1  (R13), [V16.B16]
+	VUSHR $1, V2.B16, V17.B16
+	VUSHR $1, V16.B16, V18.B16
+	VADD  V18.B16, V17.B16, V17.B16
+	VORR  V16.B16, V2.B16, V18.B16
+	VAND  V30.B16, V18.B16, V18.B16
+	VADD  V18.B16, V17.B16, V2.B16
+	VST1  [V2.B16], (R13)
+	ADD   R4, R12, R12
+	ADD   R4, R13, R13
+	SUB   $1, R16, R16
+	CBNZ  R16, luma_vert_avg_loop
+	B    chroma_begin
+
+luma_bilin_avg:
+	MOVD $16, R16
+
+	PCALIGN $16
+luma_bilin_avg_loop:
+	VLD1 (R12), [V0.B16]  // a = Y[i,j]
+	ADD  $1, R12, R17
+	VLD1 (R17), [V1.B16]  // b = Y[i,j+1]
+	ADD  R4, R12, R19
+	VLD1 (R19), [V2.B16]  // c = Y[i+1,j]
+	ADD  $1, R19, R20
+	VLD1 (R20), [V3.B16]  // d = Y[i+1,j+1]
+
+	// Columns 0..7: widen to 16-bit, sum a+b+c+d, +2, >>2.
+	VUSHLL $0, V0.B8, V4.H8
+	VUSHLL $0, V1.B8, V5.H8
+	VADD   V5.H8, V4.H8, V4.H8
+	VUSHLL $0, V2.B8, V5.H8
+	VUSHLL $0, V3.B8, V6.H8
+	VADD   V6.H8, V5.H8, V5.H8
+	VADD   V5.H8, V4.H8, V4.H8
+	VADD   V29.H8, V4.H8, V4.H8
+	VUSHR  $2, V4.H8, V4.H8
+
+	// Columns 8..15.
+	VUSHLL2 $0, V0.B16, V5.H8
+	VUSHLL2 $0, V1.B16, V6.H8
+	VADD    V6.H8, V5.H8, V5.H8
+	VUSHLL2 $0, V2.B16, V6.H8
+	VUSHLL2 $0, V3.B16, V7.H8
+	VADD    V7.H8, V6.H8, V6.H8
+	VADD    V6.H8, V5.H8, V5.H8
+	VADD    V29.H8, V5.H8, V5.H8
+	VUSHR   $2, V5.H8, V5.H8
+
+	// Narrow both halves (low byte of each 16-bit lane) into 16 bytes.
+	VUZP1 V5.B16, V4.B16, V6.B16
+	VLD1  (R13), [V16.B16]
+	VUSHR $1, V6.B16, V17.B16
+	VUSHR $1, V16.B16, V18.B16
+	VADD  V18.B16, V17.B16, V17.B16
+	VORR  V16.B16, V6.B16, V18.B16
+	VAND  V30.B16, V18.B16, V18.B16
+	VADD  V18.B16, V17.B16, V6.B16
+	VST1  [V6.B16], (R13)
+
+	ADD  R4, R12, R12
+	ADD  R4, R13, R13
+	SUB  $1, R16, R16
+	CBNZ R16, luma_bilin_avg_loop
+	B    chroma_begin
+
+chroma_direct_avg:
+	MOVD $8, R16
+
+	PCALIGN $16
+chroma_direct_avg_loop:
+	VLD1 (R12), [V0.D1]
+	VLD1  (R13), [V16.D1]
+	VUSHR $1, V0.B8, V17.B8
+	VUSHR $1, V16.B8, V18.B8
+	VADD  V18.B8, V17.B8, V17.B8
+	VORR  V16.B8, V0.B8, V18.B8
+	VAND  V30.B8, V18.B8, V18.B8
+	VADD  V18.B8, V17.B8, V0.B8
+	VST1 [V0.D1], (R13)
+	ADD  R5, R12, R12
+	ADD  R5, R13, R13
+	SUB  $1, R16, R16
+	CBNZ R16, chroma_direct_avg_loop
+	B    chroma_next
+
+chroma_horiz_avg:
+	MOVD $8, R16
+
+	PCALIGN $16
+chroma_horiz_avg_loop:
+	VLD1  (R12), [V0.D1]
+	ADD   $1, R12, R17
+	VLD1  (R17), [V1.D1]
+	VUSHR $1, V0.B8, V2.B8
+	VUSHR $1, V1.B8, V3.B8
+	VADD  V3.B8, V2.B8, V2.B8
+	VORR  V1.B8, V0.B8, V3.B8
+	VAND  V30.B8, V3.B8, V3.B8
+	VADD  V3.B8, V2.B8, V2.B8
+	VLD1  (R13), [V16.D1]
+	VUSHR $1, V2.B8, V17.B8
+	VUSHR $1, V16.B8, V18.B8
+	VADD  V18.B8, V17.B8, V17.B8
+	VORR  V16.B8, V2.B8, V18.B8
+	VAND  V30.B8, V18.B8, V18.B8
+	VADD  V18.B8, V17.B8, V2.B8
+	VST1  [V2.D1], (R13)
+	ADD   R5, R12, R12
+	ADD   R5, R13, R13
+	SUB   $1, R16, R16
+	CBNZ  R16, chroma_horiz_avg_loop
+	B    chroma_next
+
+chroma_vert_avg:
+	MOVD $8, R16
+
+	PCALIGN $16
+chroma_vert_avg_loop:
+	VLD1  (R12), [V0.D1]
+	ADD   R5, R12, R17
+	VLD1  (R17), [V1.D1]
+	VUSHR $1, V0.B8, V2.B8
+	VUSHR $1, V1.B8, V3.B8
+	VADD  V3.B8, V2.B8, V2.B8
+	VORR  V1.B8, V0.B8, V3.B8
+	VAND  V30.B8, V3.B8, V3.B8
+	VADD  V3.B8, V2.B8, V2.B8
+	VLD1  (R13), [V16.D1]
+	VUSHR $1, V2.B8, V17.B8
+	VUSHR $1, V16.B8, V18.B8
+	VADD  V18.B8, V17.B8, V17.B8
+	VORR  V16.B8, V2.B8, V18.B8
+	VAND  V30.B8, V18.B8, V18.B8
+	VADD  V18.B8, V17.B8, V2.B8
+	VST1  [V2.D1], (R13)
+	ADD   R5, R12, R12
+	ADD   R5, R13, R13
+	SUB   $1, R16, R16
+	CBNZ  R16, chroma_vert_avg_loop
+	B    chroma_next
+
+chroma_bilin_avg:
+	MOVD $8, R16
+
+	PCALIGN $16
+chroma_bilin_avg_loop:
+	VLD1   (R12), [V0.D1]
+	ADD    $1, R12, R17
+	VLD1   (R17), [V1.D1]
+	ADD    R5, R12, R19
+	VLD1   (R19), [V2.D1]
+	ADD    $1, R19, R20
+	VLD1   (R20), [V3.D1]
+	VUSHLL $0, V0.B8, V4.H8
+	VUSHLL $0, V1.B8, V5.H8
+	VADD   V5.H8, V4.H8, V4.H8
+	VUSHLL $0, V2.B8, V5.H8
+	VUSHLL $0, V3.B8, V6.H8
+	VADD   V6.H8, V5.H8, V5.H8
+	VADD   V5.H8, V4.H8, V4.H8
+	VADD   V29.H8, V4.H8, V4.H8
+	VUSHR  $2, V4.H8, V4.H8
+	VUZP1  V4.B16, V4.B16, V6.B16
+	VLD1  (R13), [V16.D1]
+	VUSHR $1, V6.B8, V17.B8
+	VUSHR $1, V16.B8, V18.B8
+	VADD  V18.B8, V17.B8, V17.B8
+	VORR  V16.B8, V6.B8, V18.B8
+	VAND  V30.B8, V18.B8, V18.B8
+	VADD  V18.B8, V17.B8, V6.B8
+	VST1   [V6.D1], (R13)
+	ADD    R5, R12, R12
+	ADD    R5, R13, R13
+	SUB    $1, R16, R16
+	CBNZ   R16, chroma_bilin_avg_loop
+	B    chroma_next

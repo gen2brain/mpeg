@@ -7,7 +7,7 @@ import (
 // copyMacroblockRef is a scalar reference implementation of the MPEG-1 block
 // motion compensation, used as an oracle to verify the optimized copyMacroblock
 // backends (assembly or the simd package) produce bit-identical output.
-func copyMacroblockRef(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame) {
+func copyMacroblockRef(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool) {
 	plane := func(src, dst []byte, stride, size, motionH, motionV, mbRow, mbCol int) {
 		hp := motionH >> 1
 		vp := motionV >> 1
@@ -29,6 +29,9 @@ func copyMacroblockRef(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth in
 					v = (int(src[si]) + int(src[si+stride]) + 1) >> 1
 				default:
 					v = (int(src[si]) + int(src[si+1]) + int(src[si+stride]) + int(src[si+stride+1]) + 2) >> 2
+				}
+				if avg {
+					v = (int(dst[di]) + v + 1) >> 1
 				}
 				dst[di] = byte(v)
 			}
@@ -58,7 +61,7 @@ func newTestFrame(lumaWidth, chromaWidth, fill int) *Frame {
 	return f
 }
 
-type copyMacroblockFunc func(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame)
+type copyMacroblockFunc func(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 
 func TestCopyMacroblockParity(t *testing.T) {
 	runParitySweep(t, copyMacroblock)
@@ -79,23 +82,25 @@ func runParitySweep(t *testing.T, fn copyMacroblockFunc) {
 		for _, mbCol := range []int{1, 2} {
 			for motionH := -3; motionH < 4; motionH++ {
 				for motionV := -3; motionV < 4; motionV++ {
-					got := newTestFrame(lumaWidth, chromaWidth, 0)
-					want := newTestFrame(lumaWidth, chromaWidth, 0)
+					for _, avg := range []bool{false, true} {
+						got := newTestFrame(lumaWidth, chromaWidth, 0)
+						want := newTestFrame(lumaWidth, chromaWidth, 0)
 
-					fn(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, src, got)
-					copyMacroblockRef(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, src, want)
+						fn(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, src, got, avg)
+						copyMacroblockRef(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth, src, want, avg)
 
-					check := func(name string, a, b []byte) {
-						for i := range a {
-							if a[i] != b[i] {
-								t.Fatalf("%s mismatch at byte %d (mbRow=%d mbCol=%d mH=%d mV=%d): got %d want %d",
-									name, i, mbRow, mbCol, motionH, motionV, a[i], b[i])
+						check := func(name string, a, b []byte) {
+							for i := range a {
+								if a[i] != b[i] {
+									t.Fatalf("%s mismatch at byte %d (mbRow=%d mbCol=%d mH=%d mV=%d avg=%v): got %d want %d",
+										name, i, mbRow, mbCol, motionH, motionV, avg, a[i], b[i])
+								}
 							}
 						}
+						check("Y", got.Y.Data, want.Y.Data)
+						check("Cb", got.Cb.Data, want.Cb.Data)
+						check("Cr", got.Cr.Data, want.Cr.Data)
 					}
-					check("Y", got.Y.Data, want.Y.Data)
-					check("Cb", got.Cb.Data, want.Cb.Data)
-					check("Cr", got.Cr.Data, want.Cr.Data)
 				}
 			}
 		}
@@ -206,8 +211,8 @@ func TestCopyMacroblockPaddedEdge(t *testing.T) {
 	if !macroblockInBounds(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &src, &got) {
 		t.Fatal("a half-pel read into the padding was rejected")
 	}
-	copyMacroblock(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &src, &got)
-	copyMacroblockRef(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &wide, &want)
+	copyMacroblock(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &src, &got, false)
+	copyMacroblockRef(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &wide, &want, false)
 
 	if string(got.Y.Data) != string(want.Y.Data) ||
 		string(got.Cb.Data) != string(want.Cb.Data) ||
@@ -216,17 +221,18 @@ func TestCopyMacroblockPaddedEdge(t *testing.T) {
 	}
 }
 
-func benchmarkCopyMacroblock(b *testing.B, motionH, motionV int) {
+func benchmarkCopyMacroblock(b *testing.B, motionH, motionV int, avg bool) {
 	const lumaWidth, chromaWidth = 64, 32
 	src := newTestFrame(lumaWidth, chromaWidth, 1)
 	dst := newTestFrame(lumaWidth, chromaWidth, 0)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		copyMacroblock(motionH, motionV, 1, 1, lumaWidth, chromaWidth, src, dst)
+		copyMacroblock(motionH, motionV, 1, 1, lumaWidth, chromaWidth, src, dst, avg)
 	}
 }
 
-func BenchmarkCopyMacroblockCopy(b *testing.B)  { benchmarkCopyMacroblock(b, 0, 0) }
-func BenchmarkCopyMacroblockHoriz(b *testing.B) { benchmarkCopyMacroblock(b, 1, 0) }
-func BenchmarkCopyMacroblockVert(b *testing.B)  { benchmarkCopyMacroblock(b, 0, 1) }
-func BenchmarkCopyMacroblockBilin(b *testing.B) { benchmarkCopyMacroblock(b, 3, 3) }
+func BenchmarkCopyMacroblockCopy(b *testing.B)        { benchmarkCopyMacroblock(b, 0, 0, false) }
+func BenchmarkCopyMacroblockHoriz(b *testing.B)       { benchmarkCopyMacroblock(b, 1, 0, false) }
+func BenchmarkCopyMacroblockVert(b *testing.B)        { benchmarkCopyMacroblock(b, 0, 1, false) }
+func BenchmarkCopyMacroblockBilin(b *testing.B)       { benchmarkCopyMacroblock(b, 3, 3, false) }
+func BenchmarkCopyMacroblockBilinInterp(b *testing.B) { benchmarkCopyMacroblock(b, 3, 3, true) }
