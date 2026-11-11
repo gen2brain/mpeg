@@ -378,22 +378,73 @@ func (b *Buffer) readVlc(table []vlc) int {
 	return int(state.Value)
 }
 
-func (b *Buffer) readVlcUint(table []vlcUint) uint16 {
-	var state vlcUint
-
-	for {
-		state = table[int(state.Index)+b.read1()]
-		if state.Index <= 0 {
-			break
-		}
-	}
-
-	return state.Value
-}
-
 type vlc struct {
 	Index int16
 	Value int16
+}
+
+const vlcBits = 9
+
+type vlcEntry struct {
+	value  int16
+	length uint8
+	node   int16
+}
+
+type vlcTable struct {
+	tree    []vlc
+	entries [1 << vlcBits]vlcEntry
+}
+
+func newVlcTable(tree []vlc) *vlcTable {
+	t := &vlcTable{tree: tree}
+	for p := range t.entries {
+		var state vlc
+		e := vlcEntry{length: vlcBits}
+		for k := range vlcBits {
+			state = tree[int(state.Index)+(p>>(vlcBits-1-k))&1]
+			if state.Index <= 0 {
+				e = vlcEntry{value: state.Value, length: uint8(k + 1)}
+
+				break
+			}
+		}
+		if e.length == vlcBits && state.Index > 0 {
+			e.node = state.Index
+		}
+		t.entries[p] = e
+	}
+
+	return t
+}
+
+func newVlcTableUint(tree []vlcUint) *vlcTable {
+	t := make([]vlc, len(tree))
+	for i, s := range tree {
+		t[i] = vlc{Index: s.Index, Value: int16(s.Value)}
+	}
+
+	return newVlcTable(t)
+}
+
+func (b *Buffer) decodeVlc(t *vlcTable) int {
+	i := b.bitIndex >> 3
+	if i+8 > len(b.bytes) {
+		return b.readVlc(t.tree)
+	}
+	e := t.entries[binary.BigEndian.Uint64(b.bytes[i:])<<uint(b.bitIndex&7)>>(64-vlcBits)]
+	b.bitIndex += int(e.length)
+	if e.node == 0 {
+		return int(e.value)
+	}
+
+	state := vlc{Index: e.node}
+	for {
+		state = t.tree[int(state.Index)+b.read1()]
+		if state.Index <= 0 {
+			return int(state.Value)
+		}
+	}
 }
 
 type vlcUint struct {

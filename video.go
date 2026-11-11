@@ -469,16 +469,16 @@ func (v *Video) decodeSlice(slice int) {
 func (v *Video) decodeMacroblock() {
 	// Decode increment
 	increment := 0
-	t := v.buf.readVlc(videoMacroblockAddressIncrement)
+	t := v.buf.decodeVlc(vlcMacroblockAddressIncrement)
 
 	for t == 34 {
 		// macroblock_stuffing
-		t = v.buf.readVlc(videoMacroblockAddressIncrement)
+		t = v.buf.decodeVlc(vlcMacroblockAddressIncrement)
 	}
 	for t == 35 {
 		// macroblock_escape
 		increment += 33
-		t = v.buf.readVlc(videoMacroblockAddressIncrement)
+		t = v.buf.decodeVlc(vlcMacroblockAddressIncrement)
 	}
 	increment += t
 
@@ -526,7 +526,7 @@ func (v *Video) decodeMacroblock() {
 	}
 
 	// Process the current macroblock
-	v.macroblockType = v.buf.readVlc(videoMacroBlockType[v.pictureType])
+	v.macroblockType = v.buf.decodeVlc(vlcMacroblockType[v.pictureType])
 
 	v.macroblockIntra = v.macroblockType&0x01 != 0
 	v.motionForward.IsSet = v.macroblockType&0x08 != 0
@@ -554,7 +554,7 @@ func (v *Video) decodeMacroblock() {
 	// Decode blocks
 	cbp := 0
 	if (v.macroblockType & 0x02) != 0 {
-		cbp = v.buf.readVlc(videoCodeBlockPattern)
+		cbp = v.buf.decodeVlc(vlcCodeBlockPattern)
 	} else if v.macroblockIntra {
 		cbp = 0x3f
 	}
@@ -589,7 +589,7 @@ func (v *Video) decodeMotionVectors() {
 
 func (v *Video) decodeMotionVector(rSize, motion int) int {
 	fscale := 1 << rSize
-	mCode := v.buf.readVlc(videoMotion)
+	mCode := v.buf.decodeVlc(vlcMotion)
 	var r, d int
 
 	if mCode != 0 && fscale != 1 {
@@ -685,7 +685,7 @@ func (v *Video) decodeBlock(block int) {
 			planeIndex = block - 3
 		}
 		predictor = v.dcPredictor[planeIndex]
-		dctSize = v.buf.readVlc(videoDctSize[planeIndex])
+		dctSize = v.buf.decodeVlc(vlcDctSize[planeIndex])
 
 		// Read DC coeff
 		if dctSize > 0 {
@@ -715,7 +715,7 @@ func (v *Video) decodeBlock(block int) {
 	level := 0
 	for {
 		run := 0
-		coeff := int(v.buf.readVlcUint(videoDctCoeff))
+		coeff := int(uint16(v.buf.decodeVlc(vlcDctCoeff)))
 
 		if (coeff == 0x0001) && (n > 0) && (v.buf.read1() == 0) {
 			// end_of_block
@@ -1191,12 +1191,16 @@ var videoMacroblockTypeB = []vlc{
 	{0, 0x16}, {0, 0x1a}, //  10: 0000 1x
 }
 
-var videoMacroBlockType = [][]vlc{
-	nil,
-	videoMacroblockTypeIntra,
-	videoMacroblockTypePredictive,
-	videoMacroblockTypeB,
-}
+var (
+	vlcMacroblockAddressIncrement = newVlcTable(videoMacroblockAddressIncrement)
+	vlcMacroblockType             = [4]*vlcTable{nil, newVlcTable(videoMacroblockTypeIntra),
+		newVlcTable(videoMacroblockTypePredictive), newVlcTable(videoMacroblockTypeB)}
+	vlcCodeBlockPattern = newVlcTable(videoCodeBlockPattern)
+	vlcMotion           = newVlcTable(videoMotion)
+	vlcDctSize          = [3]*vlcTable{newVlcTable(videoDctSizeLuminance),
+		newVlcTable(videoDctSizeChrominance), newVlcTable(videoDctSizeChrominance)}
+	vlcDctCoeff = newVlcTableUint(videoDctCoeff)
+)
 
 var videoCodeBlockPattern = []vlc{
 	{1 << 1, 0}, {2 << 1, 0}, //   0: x
@@ -1323,12 +1327,6 @@ var videoDctSizeChrominance = []vlc{
 	{0, 6}, {7 << 1, 0}, //   6: 1111 1x
 	{0, 7}, {8 << 1, 0}, //   7: 1111 11x
 	{0, 8}, {-1, 0}, //   8: 1111 111x
-}
-
-var videoDctSize = [][]vlc{
-	videoDctSizeLuminance,
-	videoDctSizeChrominance,
-	videoDctSizeChrominance,
 }
 
 // dct_coeff bitmap:

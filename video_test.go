@@ -221,6 +221,48 @@ func TestCopyMacroblockPaddedEdge(t *testing.T) {
 	}
 }
 
+func TestDecodeVlc(t *testing.T) {
+	tables := map[string]*vlcTable{
+		"address increment": vlcMacroblockAddressIncrement,
+		"type intra":        vlcMacroblockType[1],
+		"type predictive":   vlcMacroblockType[2],
+		"type b":            vlcMacroblockType[3],
+		"block pattern":     vlcCodeBlockPattern,
+		"motion":            vlcMotion,
+		"dct size luma":     vlcDctSize[0],
+		"dct size chroma":   vlcDctSize[1],
+		"dct coeff":         vlcDctCoeff,
+	}
+	for name, table := range tables {
+		for seed := range 200 {
+			data := make([]byte, 64)
+			x := uint32(seed*2654435761 + 1)
+			for i := range data {
+				x ^= x << 13
+				x ^= x >> 17
+				x ^= x << 5
+				data[i] = byte(x)
+			}
+			if seed%4 == 0 {
+				clear(data[:seed%32])
+			}
+
+			want, _ := NewBuffer(nil)
+			want.Write(data)
+			got, _ := NewBuffer(nil)
+			got.Write(data)
+			for want.bitIndex < 32*8 {
+				w := want.readVlc(table.tree)
+				g := got.decodeVlc(table)
+				if w != g || want.bitIndex != got.bitIndex {
+					t.Fatalf("%s seed %d: decoded %d at bit %d, want %d at bit %d",
+						name, seed, g, got.bitIndex, w, want.bitIndex)
+				}
+			}
+		}
+	}
+}
+
 func benchmarkCopyMacroblock(b *testing.B, motionH, motionV int, avg bool) {
 	const lumaWidth, chromaWidth = 64, 32
 	src := newTestFrame(lumaWidth, chromaWidth, 1)
