@@ -132,6 +132,34 @@ func TestDemuxStartTimeDuration(t *testing.T) {
 	}
 }
 
+func TestDemuxNegativePacketLength(t *testing.T) {
+	data := []byte{
+		0x00, 0x00, 0x01, 0xBA, 0x21, 0x00, 0x01, 0x00, 0x01, 0x80, 0x00, 0x01,
+		0x00, 0x00, 0x01, 0xBB, 0x00, 0x06, 0x80, 0x00, 0x01, 0x04, 0xE1, 0xFF,
+		0x00, 0x00, 0x01, 0xE0, 0x00, 0x02, 0x31, 0x00, 0x01, 0x00, 0x01, 0x11, 0x00, 0x01, 0x00, 0x01,
+		0x00, 0x00, 0x01, 0xE0, 0x00, 0x05, 0x0F, 'A', 'B', 'C', 'D',
+	}
+	data = append(data, make([]byte, 32)...)
+
+	buf, err := mpeg.NewBuffer(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf.Write(data)
+
+	demux, err := mpeg.NewDemux(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for range 4 {
+		if p := demux.Decode(); p != nil && string(p.Data) == "ABCD" {
+			return
+		}
+	}
+	t.Fatal("the packet after the invalid one was not found")
+}
+
 func TestAudio(t *testing.T) {
 	buf, err := mpeg.NewBuffer(bytes.NewReader(testMp2))
 	if err != nil {

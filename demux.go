@@ -564,6 +564,12 @@ func (d *Demux) decodePacket(typ int) *Packet {
 		return nil // invalid
 	}
 
+	if d.nextPacket.length < 0 {
+		d.nextPacket.length = 0
+
+		return nil // invalid
+	}
+
 	return d.packet()
 }
 
