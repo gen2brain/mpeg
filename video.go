@@ -98,7 +98,7 @@ type Video struct {
 	frameForward  Frame
 	frameBackward Frame
 
-	blockData           [64]int
+	blockData           [64]int32
 	intraQuantMatrix    [64]byte
 	nonIntraQuantMatrix [64]byte
 
@@ -691,16 +691,16 @@ func (v *Video) decodeBlock(block int) {
 		if dctSize > 0 {
 			differential := v.buf.read(dctSize)
 			if (differential & (1 << (dctSize - 1))) != 0 {
-				v.blockData[0] = predictor + differential
+				v.blockData[0] = int32(predictor + differential)
 			} else {
-				v.blockData[0] = predictor + ((-1 << dctSize) | (differential + 1))
+				v.blockData[0] = int32(predictor + ((-1 << dctSize) | (differential + 1)))
 			}
 		} else {
-			v.blockData[0] = predictor
+			v.blockData[0] = int32(predictor)
 		}
 
 		// Save predictor value
-		v.dcPredictor[planeIndex] = v.blockData[0]
+		v.dcPredictor[planeIndex] = int(v.blockData[0])
 
 		// Dequantize + premultiply
 		v.blockData[0] <<= 3 + 5
@@ -775,7 +775,7 @@ func (v *Video) decodeBlock(block int) {
 		}
 
 		// Save premultiplied coefficient
-		v.blockData[deZigZagged] = level * int(videoPremultiplierMatrix[deZigZagged])
+		v.blockData[deZigZagged] = int32(level * int(videoPremultiplierMatrix[deZigZagged]))
 	}
 
 	// Move block to its place
@@ -806,37 +806,29 @@ func (v *Video) decodeBlock(block int) {
 	if v.macroblockIntra {
 		// Overwrite (no prediction)
 		if n == 1 {
-			value := (v.blockData[0] + 128) >> 8
+			value := (int(v.blockData[0]) + 128) >> 8
 			copyValueToDest(value, d, di, scan)
 			v.blockData[0] = 0
 		} else {
-			idct(&v.blockData, n)
-			copyBlockToDest(&v.blockData, d, di, scan)
-			for i := 0; i < 64; i++ {
-				v.blockData[i] = 0
-			}
+			idctBlock(&v.blockData, n, d, di, scan, false)
 		}
 	} else {
 		// Add data to the predicted macroblock
 		if n == 1 {
-			value := (v.blockData[0] + 128) >> 8
+			value := (int(v.blockData[0]) + 128) >> 8
 			addValueToDest(value, d, di, scan)
 			v.blockData[0] = 0
 		} else {
-			idct(&v.blockData, n)
-			addBlockToDest(&v.blockData, d, di, scan)
-			for i := 0; i < 64; i++ {
-				v.blockData[i] = 0
-			}
+			idctBlock(&v.blockData, n, d, di, scan, true)
 		}
 	}
 }
 
-func idct(block *[64]int, maxIndex int) {
+func idct(block *[64]int32, maxIndex int) {
 	// See http://vsr.informatik.tu-chemnitz.de/~jan/MPEG/HTML/IDCT.html for more info.
 
 	var b1, b3, b4, b6, b7, tmp1, tmp2, m0,
-		x0, x1, x2, x3, x4, y3, y4, y5, y6, y7 int
+		x0, x1, x2, x3, x4, y3, y4, y5, y6, y7 int32
 
 	if maxIndex < 10 { // much simpler calculations when the matrix is mostly empty
 		// max column is 4th and max row is 4th (at least 3/4 of the matrix is empty)
@@ -974,7 +966,17 @@ const (
 	startExtension  = 0xB5
 )
 
-func copyBlockToDest(block *[64]int, dest []byte, index, scan int) {
+func idctBlockGo(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {
+	idct(block, maxIndex)
+	if add {
+		addBlockToDest(block, dest, index, scan)
+	} else {
+		copyBlockToDest(block, dest, index, scan)
+	}
+	clear(block[:])
+}
+
+func copyBlockToDest(block *[64]int32, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
 		dest[index+0] = clamp(block[n+0])
 		dest[index+1] = clamp(block[n+1])
@@ -989,16 +991,16 @@ func copyBlockToDest(block *[64]int, dest []byte, index, scan int) {
 	}
 }
 
-func addBlockToDest(block *[64]int, dest []byte, index, scan int) {
+func addBlockToDest(block *[64]int32, dest []byte, index, scan int) {
 	for n := 0; n < 64; n += 8 {
-		dest[index+0] = clamp(int(dest[index+0]) + block[n+0])
-		dest[index+1] = clamp(int(dest[index+1]) + block[n+1])
-		dest[index+2] = clamp(int(dest[index+2]) + block[n+2])
-		dest[index+3] = clamp(int(dest[index+3]) + block[n+3])
-		dest[index+4] = clamp(int(dest[index+4]) + block[n+4])
-		dest[index+5] = clamp(int(dest[index+5]) + block[n+5])
-		dest[index+6] = clamp(int(dest[index+6]) + block[n+6])
-		dest[index+7] = clamp(int(dest[index+7]) + block[n+7])
+		dest[index+0] = clamp(int32(dest[index+0]) + block[n+0])
+		dest[index+1] = clamp(int32(dest[index+1]) + block[n+1])
+		dest[index+2] = clamp(int32(dest[index+2]) + block[n+2])
+		dest[index+3] = clamp(int32(dest[index+3]) + block[n+3])
+		dest[index+4] = clamp(int32(dest[index+4]) + block[n+4])
+		dest[index+5] = clamp(int32(dest[index+5]) + block[n+5])
+		dest[index+6] = clamp(int32(dest[index+6]) + block[n+6])
+		dest[index+7] = clamp(int32(dest[index+7]) + block[n+7])
 
 		index += scan + 8
 	}
@@ -1043,7 +1045,7 @@ func abs(x int) int {
 	return x
 }
 
-type number interface{ int | uint8 }
+type number interface{ int | int32 | uint8 }
 
 func clamp[T number](n T) byte {
 	return byte(min(max(n, 0), 255))

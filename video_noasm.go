@@ -75,3 +75,7 @@ func copyBlock(src, dst []byte, stride, si, di, size int, oddH, oddV, avg bool) 
 		di += stride
 	}
 }
+
+func idctBlock(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {
+	idctBlockGo(block, maxIndex, dest, index, scan, add)
+}
