@@ -238,6 +238,55 @@ func TestTruncated(t *testing.T) {
 	}
 }
 
+func FuzzDecode(f *testing.F) {
+	f.Add(testMpg[:16384])
+	f.Add(testMpeg1video[:8192])
+	f.Add(testMp2[:4096])
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		const limit = 64
+
+		if mpg, err := mpeg.New(bytes.NewReader(data)); err == nil {
+			for range limit {
+				if mpg.DecodeVideo() == nil {
+					break
+				}
+			}
+		}
+		if mpg, err := mpeg.New(bytes.NewReader(data)); err == nil {
+			for range limit {
+				if mpg.DecodeAudio() == nil {
+					break
+				}
+			}
+		}
+
+		buf, err := mpeg.NewBuffer(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		buf.SetLoadCallback(buf.LoadReaderCallback)
+		video := mpeg.NewVideo(buf)
+		for range limit {
+			if video.Decode() == nil {
+				break
+			}
+		}
+
+		buf, err = mpeg.NewBuffer(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		buf.SetLoadCallback(buf.LoadReaderCallback)
+		audio := mpeg.NewAudio(buf)
+		for range limit {
+			if audio.Decode() == nil {
+				break
+			}
+		}
+	})
+}
+
 func TestAudio(t *testing.T) {
 	buf, err := mpeg.NewBuffer(bytes.NewReader(testMp2))
 	if err != nil {

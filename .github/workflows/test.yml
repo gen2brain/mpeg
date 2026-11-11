@@ -1,4 +1,8 @@
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 3 * * *'
 name: Test
 jobs:
   test:
@@ -16,3 +20,20 @@ jobs:
         go-version: ${{ matrix.go-version }}
     - name: Test
       run: go test
+
+  fuzz:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version: 1.23.x
+    - name: Fuzz
+      run: go test -run XXX -fuzz FuzzDecode -fuzztime 10m
+    - name: Upload failing input
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fuzz-FuzzDecode
+        path: testdata/fuzz/
