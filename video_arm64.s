@@ -2,15 +2,17 @@
 
 #include "textflag.h"
 
+#define URHADD16(Vd, Vn, Vm) WORD $(0x6E201400 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
+#define URHADD8(Vd, Vn, Vm)  WORD $(0x2E201400 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
+
 // copyMacroblockNEON implements MPEG-1 block motion compensation using ARM64
 // NEON, for luma (16x16) and chroma (8x8) blocks, with direct copy, horizontal,
 // vertical, and bilinear interpolation.
 //
 // func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 //
-// Go's arm64 assembler does not expose URHADD/UADDL/XTN, so the rounding
-// averages are built from the available NEON ops:
-//   - Single axis (a+b+1)>>1 = (a>>1)+(b>>1)+((a|b)&1).
+// Go's arm64 assembler does not expose URHADD, so it is encoded with WORD:
+//   - Single axis and the B average (a+b+1)>>1 are URHADD.
 //   - Bilinear (a+b+c+d+2)>>2: widen bytes to 16-bit lanes (VUSHLL/VUSHLL2),
 //     sum the four taps, add 2, shift right by 2, then narrow with VUZP1.
 //
@@ -20,11 +22,10 @@
 //   R10 = hFrac, R11 = vFrac
 //   R12 = current source pointer, R13 = current dest pointer
 //   V29 = 0x0002 per 16-bit lane (bilinear bias)
-//   V30 = 0x01 per byte (carry mask for single-axis rounding)
 TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-65
 	MOVD  motionH+0(FP), R0
 	MOVBU avg+64(FP), R25
-	MOVD motionV+8(FP), R1
+	MOVD  motionV+8(FP), R1
 	MOVD mbRow+16(FP), R2
 	MOVD mbCol+24(FP), R3
 	MOVD lumaWidth+32(FP), R4
@@ -32,9 +33,6 @@ TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-65
 	MOVD s+48(FP), R6
 	MOVD d+56(FP), R7
 
-	MOVD $0x0101010101010101, R21
-	VMOV R21, V30.D[0]
-	VMOV R21, V30.D[1]
 	MOVD $0x0002000200020002, R21
 	VMOV R21, V29.D[0]
 	VMOV R21, V29.D[1]
@@ -96,12 +94,7 @@ luma_horiz_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   $1, R12, R17
 	VLD1  (R17), [V1.B16]
-	VUSHR $1, V0.B16, V2.B16
-	VUSHR $1, V1.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
-	VORR  V1.B16, V0.B16, V3.B16
-	VAND  V30.B16, V3.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
+	URHADD16(2, 0, 1)
 	VST1  [V2.B16], (R13)
 	ADD   R4, R12, R12
 	ADD   R4, R13, R13
@@ -118,12 +111,7 @@ luma_vert_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   R4, R12, R17
 	VLD1  (R17), [V1.B16]
-	VUSHR $1, V0.B16, V2.B16
-	VUSHR $1, V1.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
-	VORR  V1.B16, V0.B16, V3.B16
-	VAND  V30.B16, V3.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
+	URHADD16(2, 0, 1)
 	VST1  [V2.B16], (R13)
 	ADD   R4, R12, R12
 	ADD   R4, R13, R13
@@ -260,12 +248,7 @@ chroma_horiz_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   $1, R12, R17
 	VLD1  (R17), [V1.D1]
-	VUSHR $1, V0.B8, V2.B8
-	VUSHR $1, V1.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
-	VORR  V1.B8, V0.B8, V3.B8
-	VAND  V30.B8, V3.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
+	URHADD8(2, 0, 1)
 	VST1  [V2.D1], (R13)
 	ADD   R5, R12, R12
 	ADD   R5, R13, R13
@@ -282,12 +265,7 @@ chroma_vert_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   R5, R12, R17
 	VLD1  (R17), [V1.D1]
-	VUSHR $1, V0.B8, V2.B8
-	VUSHR $1, V1.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
-	VORR  V1.B8, V0.B8, V3.B8
-	VAND  V30.B8, V3.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
+	URHADD8(2, 0, 1)
 	VST1  [V2.D1], (R13)
 	ADD   R5, R12, R12
 	ADD   R5, R13, R13
@@ -342,12 +320,7 @@ luma_direct_avg:
 luma_direct_avg_loop:
 	VLD1 (R12), [V0.B16]
 	VLD1  (R13), [V16.B16]
-	VUSHR $1, V0.B16, V17.B16
-	VUSHR $1, V16.B16, V18.B16
-	VADD  V18.B16, V17.B16, V17.B16
-	VORR  V16.B16, V0.B16, V18.B16
-	VAND  V30.B16, V18.B16, V18.B16
-	VADD  V18.B16, V17.B16, V0.B16
+	URHADD16(0, 0, 16)
 	VST1 [V0.B16], (R13)
 	ADD  R4, R12, R12
 	ADD  R4, R13, R13
@@ -363,19 +336,9 @@ luma_horiz_avg_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   $1, R12, R17
 	VLD1  (R17), [V1.B16]
-	VUSHR $1, V0.B16, V2.B16
-	VUSHR $1, V1.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
-	VORR  V1.B16, V0.B16, V3.B16
-	VAND  V30.B16, V3.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
+	URHADD16(2, 0, 1)
 	VLD1  (R13), [V16.B16]
-	VUSHR $1, V2.B16, V17.B16
-	VUSHR $1, V16.B16, V18.B16
-	VADD  V18.B16, V17.B16, V17.B16
-	VORR  V16.B16, V2.B16, V18.B16
-	VAND  V30.B16, V18.B16, V18.B16
-	VADD  V18.B16, V17.B16, V2.B16
+	URHADD16(2, 2, 16)
 	VST1  [V2.B16], (R13)
 	ADD   R4, R12, R12
 	ADD   R4, R13, R13
@@ -391,19 +354,9 @@ luma_vert_avg_loop:
 	VLD1  (R12), [V0.B16]
 	ADD   R4, R12, R17
 	VLD1  (R17), [V1.B16]
-	VUSHR $1, V0.B16, V2.B16
-	VUSHR $1, V1.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
-	VORR  V1.B16, V0.B16, V3.B16
-	VAND  V30.B16, V3.B16, V3.B16
-	VADD  V3.B16, V2.B16, V2.B16
+	URHADD16(2, 0, 1)
 	VLD1  (R13), [V16.B16]
-	VUSHR $1, V2.B16, V17.B16
-	VUSHR $1, V16.B16, V18.B16
-	VADD  V18.B16, V17.B16, V17.B16
-	VORR  V16.B16, V2.B16, V18.B16
-	VAND  V30.B16, V18.B16, V18.B16
-	VADD  V18.B16, V17.B16, V2.B16
+	URHADD16(2, 2, 16)
 	VST1  [V2.B16], (R13)
 	ADD   R4, R12, R12
 	ADD   R4, R13, R13
@@ -449,12 +402,7 @@ luma_bilin_avg_loop:
 	// Narrow both halves (low byte of each 16-bit lane) into 16 bytes.
 	VUZP1 V5.B16, V4.B16, V6.B16
 	VLD1  (R13), [V16.B16]
-	VUSHR $1, V6.B16, V17.B16
-	VUSHR $1, V16.B16, V18.B16
-	VADD  V18.B16, V17.B16, V17.B16
-	VORR  V16.B16, V6.B16, V18.B16
-	VAND  V30.B16, V18.B16, V18.B16
-	VADD  V18.B16, V17.B16, V6.B16
+	URHADD16(6, 6, 16)
 	VST1  [V6.B16], (R13)
 
 	ADD  R4, R12, R12
@@ -470,12 +418,7 @@ chroma_direct_avg:
 chroma_direct_avg_loop:
 	VLD1 (R12), [V0.D1]
 	VLD1  (R13), [V16.D1]
-	VUSHR $1, V0.B8, V17.B8
-	VUSHR $1, V16.B8, V18.B8
-	VADD  V18.B8, V17.B8, V17.B8
-	VORR  V16.B8, V0.B8, V18.B8
-	VAND  V30.B8, V18.B8, V18.B8
-	VADD  V18.B8, V17.B8, V0.B8
+	URHADD8(0, 0, 16)
 	VST1 [V0.D1], (R13)
 	ADD  R5, R12, R12
 	ADD  R5, R13, R13
@@ -491,19 +434,9 @@ chroma_horiz_avg_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   $1, R12, R17
 	VLD1  (R17), [V1.D1]
-	VUSHR $1, V0.B8, V2.B8
-	VUSHR $1, V1.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
-	VORR  V1.B8, V0.B8, V3.B8
-	VAND  V30.B8, V3.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
+	URHADD8(2, 0, 1)
 	VLD1  (R13), [V16.D1]
-	VUSHR $1, V2.B8, V17.B8
-	VUSHR $1, V16.B8, V18.B8
-	VADD  V18.B8, V17.B8, V17.B8
-	VORR  V16.B8, V2.B8, V18.B8
-	VAND  V30.B8, V18.B8, V18.B8
-	VADD  V18.B8, V17.B8, V2.B8
+	URHADD8(2, 2, 16)
 	VST1  [V2.D1], (R13)
 	ADD   R5, R12, R12
 	ADD   R5, R13, R13
@@ -519,19 +452,9 @@ chroma_vert_avg_loop:
 	VLD1  (R12), [V0.D1]
 	ADD   R5, R12, R17
 	VLD1  (R17), [V1.D1]
-	VUSHR $1, V0.B8, V2.B8
-	VUSHR $1, V1.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
-	VORR  V1.B8, V0.B8, V3.B8
-	VAND  V30.B8, V3.B8, V3.B8
-	VADD  V3.B8, V2.B8, V2.B8
+	URHADD8(2, 0, 1)
 	VLD1  (R13), [V16.D1]
-	VUSHR $1, V2.B8, V17.B8
-	VUSHR $1, V16.B8, V18.B8
-	VADD  V18.B8, V17.B8, V17.B8
-	VORR  V16.B8, V2.B8, V18.B8
-	VAND  V30.B8, V18.B8, V18.B8
-	VADD  V18.B8, V17.B8, V2.B8
+	URHADD8(2, 2, 16)
 	VST1  [V2.D1], (R13)
 	ADD   R5, R12, R12
 	ADD   R5, R13, R13
@@ -562,12 +485,7 @@ chroma_bilin_avg_loop:
 	VUSHR  $2, V4.H8, V4.H8
 	VUZP1  V4.B16, V4.B16, V6.B16
 	VLD1  (R13), [V16.D1]
-	VUSHR $1, V6.B8, V17.B8
-	VUSHR $1, V16.B8, V18.B8
-	VADD  V18.B8, V17.B8, V17.B8
-	VORR  V16.B8, V6.B8, V18.B8
-	VAND  V30.B8, V18.B8, V18.B8
-	VADD  V18.B8, V17.B8, V6.B8
+	URHADD8(6, 6, 16)
 	VST1   [V6.D1], (R13)
 	ADD    R5, R12, R12
 	ADD    R5, R13, R13
