@@ -696,3 +696,34 @@ func BenchmarkRGBA(b *testing.B) {
 		frame.RGBA()
 	}
 }
+
+func TestEndTwice(t *testing.T) {
+	mpg, err := mpeg.New(bytes.NewReader(testMpg))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	finished := make(chan struct{})
+	go func() {
+		for mpg.DecodeVideo() != nil {
+		}
+		for mpg.DecodeAudio() != nil {
+		}
+		mpg.DecodeVideo()
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("decoding blocked after the end of the stream")
+	}
+	if !mpg.HasEnded() {
+		t.Fatal("HasEnded is false")
+	}
+	select {
+	case <-mpg.Done():
+	default:
+		t.Fatal("Done did not fire")
+	}
+}

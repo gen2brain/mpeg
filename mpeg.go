@@ -622,7 +622,10 @@ func (m *MPEG) handleEnd() {
 		m.Rewind()
 	} else {
 		m.hasEnded = true
-		m.done <- true
+		select {
+		case m.done <- true:
+		default:
+		}
 	}
 }
 
