@@ -19,6 +19,10 @@ func TestCopyMacroblockParityAVX2(t *testing.T) {
 	runParitySweep(t, copyMacroblockAVX2)
 }
 
+func TestIdctSSE2(t *testing.T) {
+	runIdctParity(t, idctSSE2)
+}
+
 func TestIdctAVX2(t *testing.T) {
 	if !isAVX2 {
 		t.Skip("CPU does not support AVX2")

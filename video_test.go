@@ -308,7 +308,7 @@ func runIdctParity(t *testing.T, idct func(block *int32, dst *uint8, stride int,
 		got = want
 
 		for _, add := range []bool{false, true} {
-			dw := make([]byte, 8*stride)
+			dw := make([]byte, 12*stride)
 			for i := range dw {
 				dw[i] = byte(next())
 			}

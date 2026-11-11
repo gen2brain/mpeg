@@ -19,12 +19,14 @@ func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, 
 //go:noescape
 func idctAVX2(block *int32, dst *uint8, stride int, add bool)
 
-func idctBlock(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {
-	if !isAVX2 {
-		idctBlockGo(block, maxIndex, dest, index, scan, add)
+//go:noescape
+func idctSSE2(block *int32, dst *uint8, stride int, add bool)
 
-		return
-	}
+func idctBlock(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {
 	_ = dest[index+7*(scan+8)+7]
-	idctAVX2(&block[0], &dest[index], scan+8, add)
+	if isAVX2 {
+		idctAVX2(&block[0], &dest[index], scan+8, add)
+	} else {
+		idctSSE2(&block[0], &dest[index], scan+8, add)
+	}
 }
