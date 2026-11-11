@@ -279,6 +279,19 @@ func BenchmarkCopyMacroblockVert(b *testing.B)        { benchmarkCopyMacroblock(
 func BenchmarkCopyMacroblockBilin(b *testing.B)       { benchmarkCopyMacroblock(b, 3, 3, false) }
 func BenchmarkCopyMacroblockBilinInterp(b *testing.B) { benchmarkCopyMacroblock(b, 3, 3, true) }
 
+func BenchmarkIdctBlock(b *testing.B) {
+	var src [64]int32
+	for i := range src {
+		src[i] = int32((i*37)%61-30) * int32(videoPremultiplierMatrix[i])
+	}
+	dst := make([]byte, 8*24)
+	var block [64]int32
+	for i := 0; i < b.N; i++ {
+		block = src
+		idctBlock(&block, 64, dst, 0, 16, i&1 == 1)
+	}
+}
+
 func runIdctParity(t *testing.T, idct func(block *int32, dst *uint8, stride int, add bool)) {
 	x := uint32(1)
 	next := func() int {
