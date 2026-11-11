@@ -221,6 +221,10 @@ func (b *Buffer) has(count int) bool {
 }
 
 func (b *Buffer) read(count int) int {
+	if (len(b.bytes)<<3)-b.bitIndex < count && !b.has(count) {
+		return 0
+	}
+
 	value := 0
 	for count != 0 {
 		currentByte := int(b.bytes[b.bitIndex>>3])
@@ -244,7 +248,11 @@ func (b *Buffer) read(count int) int {
 }
 
 func (b *Buffer) read1() int {
-	currentByte := int(b.bytes[b.bitIndex>>3])
+	i := b.bitIndex >> 3
+	if i >= len(b.bytes) {
+		return 0
+	}
+	currentByte := int(b.bytes[i])
 
 	shift := 7 - (b.bitIndex & 7)
 	value := (currentByte & (1 << shift)) >> shift
