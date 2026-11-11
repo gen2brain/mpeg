@@ -19,6 +19,10 @@ func copyMacroblock(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, 
 	copyBlockRVV(&d.Cr.Data[di], &s.Cr.Data[si], chromaWidth, 8, mode, avg)
 }
 
+//go:noescape
+func idctRVV(block *int32, dst *uint8, stride int, add bool)
+
 func idctBlock(block *[64]int32, maxIndex int, dest []byte, index, scan int, add bool) {
-	idctBlockGo(block, maxIndex, dest, index, scan, add)
+	_ = dest[index+7*(scan+8)+7]
+	idctRVV(&block[0], &dest[index], scan+8, add)
 }
