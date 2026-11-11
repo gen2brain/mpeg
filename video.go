@@ -502,8 +502,14 @@ func (v *Video) decodeSlice(slice int) {
 		v.buf.skip(8)
 	}
 
+	end := v.buf.startCodePosition()
 	for {
 		v.decodeMacroblock()
+		if end >= 0 && v.buf.position() > end {
+			v.buf.setPosition(end)
+
+			break
+		}
 		if v.macroblockAddress >= v.mbSize-1 || !v.buf.peekNonZero(23) {
 			break
 		}

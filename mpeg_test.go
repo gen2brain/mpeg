@@ -727,3 +727,50 @@ func TestEndTwice(t *testing.T) {
 		t.Fatal("Done did not fire")
 	}
 }
+
+func TestDamagedSlice(t *testing.T) {
+	buf, err := mpeg.NewBuffer(bytes.NewReader(testMpg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf.SetLoadCallback(buf.LoadReaderCallback)
+	demux, err := mpeg.NewDemux(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var es []byte
+	for p := demux.Decode(); p != nil; p = demux.Decode() {
+		if p.Type == mpeg.PacketVideo1 {
+			es = append(es, p.Data...)
+		}
+	}
+
+	count := func(data []byte) int {
+		buf, _ := mpeg.NewBuffer(bytes.NewReader(data))
+		buf.SetLoadCallback(buf.LoadReaderCallback)
+		video := mpeg.NewVideo(buf)
+		n := 0
+		for video.Decode() != nil {
+			n++
+		}
+
+		return n
+	}
+
+	var pictures []int
+	for i := 0; i+3 < len(es); i++ {
+		if es[i] == 0 && es[i+1] == 0 && es[i+2] == 1 && es[i+3] == 0 {
+			pictures = append(pictures, i)
+		}
+	}
+	next := pictures[5]
+	slice := bytes.LastIndex(es[:next], []byte{0, 0, 1})
+	if next-slice < 32 {
+		t.Fatalf("last slice of picture 4 is only %d bytes", next-slice)
+	}
+	damaged := append(append([]byte{}, es[:slice+16]...), es[next:]...)
+
+	if want, got := count(es), count(damaged); got != want {
+		t.Fatalf("damaged slice lost pictures: %d frames, want %d", got, want)
+	}
+}

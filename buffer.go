@@ -1,6 +1,7 @@
 package mpeg
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -21,6 +22,7 @@ type Buffer struct {
 
 	bitIndex  int
 	totalSize int
+	discarded int
 
 	hasEnded    bool
 	discardRead bool
@@ -189,6 +191,7 @@ func (b *Buffer) tell() int {
 
 func (b *Buffer) discardReadBytes() {
 	bytePos := b.bitIndex >> 3
+	b.discarded += bytePos
 	if bytePos == len(b.bytes) {
 		b.bytes = b.bytes[:0]
 
@@ -352,6 +355,23 @@ func (b *Buffer) findFrameSync() bool {
 	b.bitIndex = (i + 1) << 3
 
 	return false
+}
+
+func (b *Buffer) position() int {
+	return b.discarded<<3 + b.bitIndex
+}
+
+func (b *Buffer) setPosition(pos int) {
+	b.bitIndex = pos - b.discarded<<3
+}
+
+func (b *Buffer) startCodePosition() int {
+	i := bytes.Index(b.bytes[b.bitIndex>>3:], []byte{0, 0, 1})
+	if i < 0 {
+		return -1
+	}
+
+	return (b.discarded + b.bitIndex>>3 + i) << 3
 }
 
 func (b *Buffer) peekNonZero(bitCount int) bool {
