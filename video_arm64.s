@@ -4,6 +4,10 @@
 
 #define URHADD16(Vd, Vn, Vm) WORD $(0x6E201400 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
 #define URHADD8(Vd, Vn, Vm)  WORD $(0x2E201400 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
+#define UADDL(Vd, Vn, Vm)    WORD $(0x2E200000 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
+#define UADDL2(Vd, Vn, Vm)   WORD $(0x6E200000 | ((Vm) << 16) | ((Vn) << 5) | (Vd))
+#define RSHRN_2(Vd, Vn)      WORD $(0x0F0E8C00 | ((Vn) << 5) | (Vd))
+#define RSHRN2_2(Vd, Vn)     WORD $(0x4F0E8C00 | ((Vn) << 5) | (Vd))
 
 // copyMacroblockNEON implements MPEG-1 block motion compensation using ARM64
 // NEON, for luma (16x16) and chroma (8x8) blocks, with direct copy, horizontal,
@@ -11,17 +15,16 @@
 //
 // func copyMacroblockNEON(motionH, motionV, mbRow, mbCol, lumaWidth, chromaWidth int, s, d *Frame, avg bool)
 //
-// Go's arm64 assembler does not expose URHADD, so it is encoded with WORD:
+// Go's arm64 assembler does not expose URHADD, UADDL or RSHRN, so they are
+// encoded with WORD:
 //   - Single axis and the B average (a+b+1)>>1 are URHADD.
-//   - Bilinear (a+b+c+d+2)>>2: widen bytes to 16-bit lanes (VUSHLL/VUSHLL2),
-//     sum the four taps, add 2, shift right by 2, then narrow with VUZP1.
+//   - Bilinear (a+b+c+d+2)>>2 is two UADDL, an ADD, and RSHRN #2.
 //
 // Persistent registers:
 //   R4  = lumaWidth, R5 = chromaWidth (row strides)
 //   R6  = source frame, R7 = dest frame
 //   R10 = hFrac, R11 = vFrac
 //   R12 = current source pointer, R13 = current dest pointer
-//   V29 = 0x0002 per 16-bit lane (bilinear bias)
 TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-65
 	MOVD  motionH+0(FP), R0
 	MOVBU avg+64(FP), R25
@@ -33,9 +36,6 @@ TEXT ·copyMacroblockNEON(SB), NOSPLIT, $0-65
 	MOVD s+48(FP), R6
 	MOVD d+56(FP), R7
 
-	MOVD $0x0002000200020002, R21
-	VMOV R21, V29.D[0]
-	VMOV R21, V29.D[1]
 
 	// Luma: split motion into integer offset and half-pel fraction.
 	ASR $1, R0, R8
@@ -133,30 +133,14 @@ luma_bilin_loop:
 	ADD  $1, R19, R20
 	VLD1 (R20), [V3.B16]  // d = Y[i+1,j+1]
 
-	// Columns 0..7: widen to 16-bit, sum a+b+c+d, +2, >>2.
-	VUSHLL $0, V0.B8, V4.H8
-	VUSHLL $0, V1.B8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VUSHLL $0, V2.B8, V5.H8
-	VUSHLL $0, V3.B8, V6.H8
-	VADD   V6.H8, V5.H8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VADD   V29.H8, V4.H8, V4.H8
-	VUSHR  $2, V4.H8, V4.H8
-
-	// Columns 8..15.
-	VUSHLL2 $0, V0.B16, V5.H8
-	VUSHLL2 $0, V1.B16, V6.H8
-	VADD    V6.H8, V5.H8, V5.H8
-	VUSHLL2 $0, V2.B16, V6.H8
-	VUSHLL2 $0, V3.B16, V7.H8
-	VADD    V7.H8, V6.H8, V6.H8
-	VADD    V6.H8, V5.H8, V5.H8
-	VADD    V29.H8, V5.H8, V5.H8
-	VUSHR   $2, V5.H8, V5.H8
-
-	// Narrow both halves (low byte of each 16-bit lane) into 16 bytes.
-	VUZP1 V5.B16, V4.B16, V6.B16
+	UADDL(4, 0, 1)
+	UADDL(5, 2, 3)
+	VADD     V5.H8, V4.H8, V4.H8
+	RSHRN_2(6, 4)
+	UADDL2(4, 0, 1)
+	UADDL2(5, 2, 3)
+	VADD     V5.H8, V4.H8, V4.H8
+	RSHRN2_2(6, 4)
 	VST1  [V6.B16], (R13)
 
 	ADD  R4, R12, R12
@@ -286,16 +270,10 @@ chroma_bilin_loop:
 	VLD1   (R19), [V2.D1]
 	ADD    $1, R19, R20
 	VLD1   (R20), [V3.D1]
-	VUSHLL $0, V0.B8, V4.H8
-	VUSHLL $0, V1.B8, V5.H8
+	UADDL(4, 0, 1)
+	UADDL(5, 2, 3)
 	VADD   V5.H8, V4.H8, V4.H8
-	VUSHLL $0, V2.B8, V5.H8
-	VUSHLL $0, V3.B8, V6.H8
-	VADD   V6.H8, V5.H8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VADD   V29.H8, V4.H8, V4.H8
-	VUSHR  $2, V4.H8, V4.H8
-	VUZP1  V4.B16, V4.B16, V6.B16
+	RSHRN_2(6, 4)
 	VST1   [V6.D1], (R13)
 	ADD    R5, R12, R12
 	ADD    R5, R13, R13
@@ -377,30 +355,14 @@ luma_bilin_avg_loop:
 	ADD  $1, R19, R20
 	VLD1 (R20), [V3.B16]  // d = Y[i+1,j+1]
 
-	// Columns 0..7: widen to 16-bit, sum a+b+c+d, +2, >>2.
-	VUSHLL $0, V0.B8, V4.H8
-	VUSHLL $0, V1.B8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VUSHLL $0, V2.B8, V5.H8
-	VUSHLL $0, V3.B8, V6.H8
-	VADD   V6.H8, V5.H8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VADD   V29.H8, V4.H8, V4.H8
-	VUSHR  $2, V4.H8, V4.H8
-
-	// Columns 8..15.
-	VUSHLL2 $0, V0.B16, V5.H8
-	VUSHLL2 $0, V1.B16, V6.H8
-	VADD    V6.H8, V5.H8, V5.H8
-	VUSHLL2 $0, V2.B16, V6.H8
-	VUSHLL2 $0, V3.B16, V7.H8
-	VADD    V7.H8, V6.H8, V6.H8
-	VADD    V6.H8, V5.H8, V5.H8
-	VADD    V29.H8, V5.H8, V5.H8
-	VUSHR   $2, V5.H8, V5.H8
-
-	// Narrow both halves (low byte of each 16-bit lane) into 16 bytes.
-	VUZP1 V5.B16, V4.B16, V6.B16
+	UADDL(4, 0, 1)
+	UADDL(5, 2, 3)
+	VADD     V5.H8, V4.H8, V4.H8
+	RSHRN_2(6, 4)
+	UADDL2(4, 0, 1)
+	UADDL2(5, 2, 3)
+	VADD     V5.H8, V4.H8, V4.H8
+	RSHRN2_2(6, 4)
 	VLD1  (R13), [V16.B16]
 	URHADD16(6, 6, 16)
 	VST1  [V6.B16], (R13)
@@ -474,16 +436,10 @@ chroma_bilin_avg_loop:
 	VLD1   (R19), [V2.D1]
 	ADD    $1, R19, R20
 	VLD1   (R20), [V3.D1]
-	VUSHLL $0, V0.B8, V4.H8
-	VUSHLL $0, V1.B8, V5.H8
+	UADDL(4, 0, 1)
+	UADDL(5, 2, 3)
 	VADD   V5.H8, V4.H8, V4.H8
-	VUSHLL $0, V2.B8, V5.H8
-	VUSHLL $0, V3.B8, V6.H8
-	VADD   V6.H8, V5.H8, V5.H8
-	VADD   V5.H8, V4.H8, V4.H8
-	VADD   V29.H8, V4.H8, V4.H8
-	VUSHR  $2, V4.H8, V4.H8
-	VUZP1  V4.B16, V4.B16, V6.B16
+	RSHRN_2(6, 4)
 	VLD1  (R13), [V16.D1]
 	URHADD8(6, 6, 16)
 	VST1   [V6.D1], (R13)
