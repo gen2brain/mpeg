@@ -39,7 +39,6 @@
 package mpeg
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"time"
@@ -92,17 +91,13 @@ func New(r io.Reader) (*MPEG, error) {
 
 	buf.SetLoadCallback(buf.LoadReaderCallback)
 
-	if !buf.has(32) {
-		return nil, ErrInvalidMPEG
-	}
-	if !bytes.Equal([]byte{0x00, 0x00, 0x01, 0xBA}, buf.Bytes()[0:4]) {
-		return nil, ErrInvalidMPEG
-	}
-	buf.Rewind()
+	m.demux = newDemux(buf)
+	if !m.demux.HasHeaders() {
+		if !m.demux.hasPackHeader {
+			return nil, ErrInvalidMPEG
+		}
 
-	m.demux, err = NewDemux(buf)
-	if err != nil {
-		return nil, err
+		return nil, ErrInvalidHeader
 	}
 
 	m.done = make(chan bool, 1)

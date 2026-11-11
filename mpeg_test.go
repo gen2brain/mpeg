@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/binary"
+	"errors"
 	"hash/fnv"
 	"math"
 	"testing"
@@ -285,6 +286,40 @@ func FuzzDecode(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestLeadingData(t *testing.T) {
+	decode := func(data []byte) []byte {
+		mpg, err := mpeg.New(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mpg.SetAudioEnabled(false)
+		var out []byte
+		for frame := mpg.DecodeVideo(); frame != nil; frame = mpg.DecodeVideo() {
+			out = append(out, frame.Y.Data...)
+		}
+
+		return out
+	}
+
+	junk := make([]byte, 65536)
+	copy(junk, "RIFF\x00\x00\x00\x00CDXAfmt ")
+	for i := 16; i < len(junk); i++ {
+		junk[i] = byte(i*7 + 3)
+	}
+	want := decode(testMpg)
+	if got := decode(append(junk, testMpg...)); !bytes.Equal(got, want) {
+		t.Fatalf("leading data changed the output: %d bytes, want %d", len(got), len(want))
+	}
+
+	if _, err := mpeg.New(bytes.NewReader(junk)); !errors.Is(err, mpeg.ErrInvalidMPEG) {
+		t.Fatalf("no pack header: %v, want ErrInvalidMPEG", err)
+	}
+	pack := append(append([]byte{}, junk...), 0x00, 0x00, 0x01, 0xBA, 0x21, 0x00, 0x01, 0x00, 0x01, 0x80, 0x00, 0x01)
+	if _, err := mpeg.New(bytes.NewReader(pack)); !errors.Is(err, mpeg.ErrInvalidHeader) {
+		t.Fatalf("pack header without a system header: %v, want ErrInvalidHeader", err)
+	}
 }
 
 func TestAudio(t *testing.T) {

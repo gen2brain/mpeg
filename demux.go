@@ -59,6 +59,15 @@ type Demux struct {
 
 // NewDemux creates a demuxer with buffer as a source.
 func NewDemux(buf *Buffer) (*Demux, error) {
+	dmux := newDemux(buf)
+	if !dmux.HasHeaders() {
+		return nil, ErrInvalidHeader
+	}
+
+	return dmux, nil
+}
+
+func newDemux(buf *Buffer) *Demux {
 	dmux := &Demux{}
 
 	dmux.buf = buf
@@ -68,11 +77,7 @@ func NewDemux(buf *Buffer) (*Demux, error) {
 	dmux.lastPts = make(map[int]float64)
 	dmux.startCode = -1
 
-	if !dmux.HasHeaders() {
-		return nil, ErrInvalidHeader
-	}
-
-	return dmux, nil
+	return dmux
 }
 
 // Buffer returns demuxer buffer.
