@@ -1,6 +1,7 @@
 package mpeg
 
 import (
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/draw"
@@ -97,6 +98,7 @@ type Video struct {
 	frameCurrent  Frame
 	frameForward  Frame
 	frameBackward Frame
+	frameInterp   Frame
 
 	blockData           [64]int
 	intraQuantMatrix    [64]byte
@@ -324,6 +326,7 @@ func (v *Video) decodeSequenceHeader() bool {
 	v.initFrame(&v.frameCurrent)
 	v.initFrame(&v.frameForward)
 	v.initFrame(&v.frameBackward)
+	v.initFrame(&v.frameInterp)
 
 	v.hasSequenceHeader = true
 
@@ -420,7 +423,7 @@ func (v *Video) decodePicture() {
 	// Decode all slices
 	for startIsSlice(v.startCode) {
 		v.decodeSlice(v.startCode & 0x000000FF)
-		if v.macroblockAddress >= v.mbSize-2 {
+		if v.macroblockAddress >= v.mbSize-1 {
 			break
 		}
 		v.startCode = v.buf.nextStartCode()
@@ -615,12 +618,14 @@ func blockInBounds(srcCap, dstLen, stride, size, motionH, motionV, mbRow, mbCol 
 	if mbRow < 0 || mbCol < 0 || mbCol*size+size > stride {
 		return false
 	}
-	if (mbRow*size+size-1)*stride+mbCol*size+size > dstLen {
+	maxAddress := stride*(dstLen/stride-size+1) - size
+	di := mbRow*size*stride + mbCol*size
+	si := (mbRow*size+(motionV>>1))*stride + mbCol*size + (motionH >> 1)
+	if si < 0 || si > maxAddress || di > maxAddress {
 		return false
 	}
-	si := (mbRow*size+(motionV>>1))*stride + mbCol*size + (motionH >> 1)
 
-	return si >= 0 && si+(size-1+(motionV&1))*stride+size+(motionH&1) <= srcCap
+	return si+(size-1+(motionV&1))*stride+size+(motionH&1) <= srcCap
 }
 
 func (v *Video) copyMacroblock(motionH, motionV int, s *Frame) {
@@ -628,6 +633,31 @@ func (v *Video) copyMacroblock(motionH, motionV int, s *Frame) {
 		return // corrupt stream
 	}
 	copyMacroblock(motionH, motionV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, s, &v.frameCurrent)
+}
+
+func (v *Video) interpolateMacroblock(motionH, motionV int, s *Frame) {
+	if !macroblockInBounds(motionH, motionV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, s, &v.frameInterp) {
+		return // corrupt stream
+	}
+	copyMacroblock(motionH, motionV, v.mbRow, v.mbCol, v.lumaWidth, v.chromaWidth, s, &v.frameInterp)
+
+	d, p := &v.frameCurrent, &v.frameInterp
+	averageBlock(d.Y.Data, p.Y.Data, v.lumaWidth, (v.mbRow<<4)*v.lumaWidth+(v.mbCol<<4), 16)
+	ci := (v.mbRow<<3)*v.chromaWidth + (v.mbCol << 3)
+	averageBlock(d.Cb.Data, p.Cb.Data, v.chromaWidth, ci, 8)
+	averageBlock(d.Cr.Data, p.Cr.Data, v.chromaWidth, ci, 8)
+}
+
+func averageBlock(dst, src []byte, stride, di, size int) {
+	for range size {
+		d, s := dst[di:di+size:di+size], src[di:di+size:di+size]
+		for i := 0; i < size; i += 8 {
+			a := binary.LittleEndian.Uint64(d[i:])
+			b := binary.LittleEndian.Uint64(s[i:])
+			binary.LittleEndian.PutUint64(d[i:], (a|b)-((a^b)&0xfefefefefefefefe)>>1)
+		}
+		di += stride
+	}
 }
 
 func (v *Video) predictMacroblock() {
@@ -651,7 +681,7 @@ func (v *Video) predictMacroblock() {
 		if v.motionForward.IsSet {
 			v.copyMacroblock(fwH, fwV, &v.frameForward)
 			if v.motionBackward.IsSet {
-				v.copyMacroblock(bwH, bwV, &v.frameBackward)
+				v.interpolateMacroblock(bwH, bwV, &v.frameBackward)
 			}
 		} else {
 			v.copyMacroblock(bwH, bwV, &v.frameBackward)

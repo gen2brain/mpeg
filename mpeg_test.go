@@ -228,31 +228,31 @@ func TestAudioGolden(t *testing.T) {
 	}
 }
 
-// TestVideoGolden hashes every decoded plane to guard the integer decode path
-// (dequant, IDCT, motion compensation). The output is identical on all backends.
+// TestVideoGolden hashes the visible area of every frame of test.mpg; the
+// expected value is pl_mpeg's output for the same file.
 func TestVideoGolden(t *testing.T) {
-	buf, err := mpeg.NewBuffer(bytes.NewReader(testMpeg1video))
+	mpg, err := mpeg.New(bytes.NewReader(testMpg))
 	if err != nil {
 		t.Fatal(err)
 	}
-	buf.SetLoadCallback(buf.LoadReaderCallback)
-
-	video := mpeg.NewVideo(buf)
+	mpg.SetAudioEnabled(false)
 
 	h := fnv.New64a()
 	frames := 0
-	for {
-		frame := video.Decode()
-		if frame == nil {
-			break
+	for frame := mpg.DecodeVideo(); frame != nil; frame = mpg.DecodeVideo() {
+		for i, p := range []*mpeg.Plane{&frame.Y, &frame.Cb, &frame.Cr} {
+			w, rows := frame.Width, frame.Height
+			if i > 0 {
+				w, rows = (w+1)/2, (rows+1)/2
+			}
+			for y := range rows {
+				h.Write(p.Data[y*p.Width : y*p.Width+w])
+			}
 		}
-		h.Write(frame.Y.Data)
-		h.Write(frame.Cb.Data)
-		h.Write(frame.Cr.Data)
 		frames++
 	}
 
-	const want uint64 = 0xea6d7fcb1340ba3f
+	const want uint64 = 0x38319faf42238faf
 	if got := h.Sum64(); got != want {
 		t.Fatalf("video output hash: got %#016x want %#016x (frames=%d)", got, want, frames)
 	}

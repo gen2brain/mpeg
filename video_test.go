@@ -201,7 +201,7 @@ func TestCopyMacroblockPaddedEdge(t *testing.T) {
 	wide.Cb.Data = src.Cb.Data[:cap(src.Cb.Data)]
 	wide.Cr.Data = src.Cr.Data[:cap(src.Cr.Data)]
 
-	const motionH, motionV = 3, 3
+	const motionH, motionV = 1, 1
 	mbRow, mbCol := mbHeight-1, mbWidth-1
 	if !macroblockInBounds(motionH, motionV, mbRow, mbCol, v.lumaWidth, v.chromaWidth, &src, &got) {
 		t.Fatal("a half-pel read into the padding was rejected")
